@@ -109,55 +109,101 @@ def generate_localFrames(file_lookup_frame, sheet_lookup_frame, file_nominals, s
         return None
 
 
-def plot_diff_centroids (centroids_diff):
-    new_index = np.linspace(0, centroids_diff['x'].size-1, centroids_diff['x'].size)
-    centroids_diff['Index'] = new_index
-    centroids_diff.insert(0,'Girder',centroids_diff.index)
-    centroids_diff.set_index('Index',drop=True,inplace=True)
-    centroids_diff.reset_index(drop=True, inplace=True)
-    centroids_diff.rename(columns={'x': 'dx [mm]', 'y': 'dy [mm]', 'z': 'dz [mm]'}, inplace=True)
-
-    fig, axs = plt.subplots(3,1, figsize=(18,9), sharex=True)
+# função pra plot parcialmente genérica
+# in: - DataFrame results_df: dataframe de resultados gerado por calculate_angles, centroids etc
+#     - String analysis_type: "centroid"/"inout"/"angle"
+#     - Array plots_args_dict: dicionário com dados p/ as propriedade de ordenadas e títulos dos plots.
+#                                 -> Formato: {'y_list' : {var dependente plot 1, var dependente do plot 2, ...}, 
+#                                              'title_list' : {título plot 1,título plot 2, ...}}
+#
+#                                 -> Exemplos: - caso centroid -> {'y_list' : ['x','y'], 'title_list' : ['Horizontal', 'Longitudinal']}
+#                                              - caso ângulos  -> {'y_list' : ['Roll','Pitch', 'Yaw'], 'title_list' : ['Roll', 'Pitch', 'Yaw']}
+#                                              - caso inout    -> {'y_list' : ['x_in', 'y_in', 'z_in', 'z_out'], 'title_list' : ['horizontal', 'vertical', 'horizontal', 'vertical']}
+#
+def plot_girder_deviation (results_df, analysis_type, plots_args_dict):
+    # pegando uma cópia do df original
+    results_df = results_df.copy()
+    
+    # verificando qual o tipo de plot que será, e associando 
+    # parâmetros específicos a eles
+    if (analysis_type == "centroid"):
+        colum1_name = 'x'
+        df_colums_dict = {'x': 'dx [mm]', 'y': 'dy [mm]', 'z': 'dz [mm]'}
+    elif (analysis_type == 'inout'):
+        colum1_name = 'x_in'
+        df_colums_dict = {'x_in': 'dx_in [mm]', 'y_in': 'dy_in [mm]', 'z_in': 'dz_in [mm]',
+                                   'x_out': 'dx_out [mm]', 'y_out': 'dy_out [mm]', 'z_out': 'dz_out [mm]'}
+    elif (analysis_type == 'angle'):
+        colum1_name = 'Roll'
+        df_colums_dict = {'Roll': 'u_roll [mrad]', 'Pitch': 'u_pitch [mrad]', 'Yaw':'u_yaw [mrad]'}
+    else:
+        print("Falha no plot: tipo de análise não reconhecida.")
+        return
+    
+    """ configurando df """ 
+    new_index = np.linspace(0, results_df[colum1_name].size-1, results_df[colum1_name].size)
+    results_df['Index'] = new_index
+    results_df.insert(0,'Girder',centroids_diff.index)
+    results_df.set_index('Index',drop=True,inplace=True)
+    results_df.reset_index(drop=True, inplace=True)
+    results_df.rename(columns=df_colums_dict, inplace=True)
+    
+    """ configurando parâmetros do plot """
+    # configurando plot de acordo com o número de variáveis que foi passado,
+    # ou seja, de acordo com o tamanho da lista 'y_list' recebida
+    num_plots = len(plots_args_dict['y_list'])
+    # definindo o numero de linhas e colunas do layout do plot
+    if (num_plots <= 3):
+        grid_subplot = [num_plots,1]
+    else:
+        grid_subplot = [3, 2]
+    # definindo se as absicissas serão compartilhadas ou não
+    share_xAxis = 'col'
+    if (num_plots > 3 and num_plots % 3 != 0):
+        share_xAxis = 'none'
+    # criando subplots com os parâmetros gerados acima
+    fig, axs = plt.subplots(grid_subplot[0], grid_subplot[1], figsize=(18,9), sharex=share_xAxis)
     plt.subplots_adjust(hspace=0.3)
     tickpos = np.linspace(0,220,21)
     
-    centroids_diff.plot.scatter('Girder', 'dx [mm]', c='red', ax=axs[0], title='Horizontal')
-    centroids_diff.plot.scatter('Girder', 'dy [mm]', c='limegreen', ax=axs[1], title='Longitudinal')
-    centroids_diff.plot.scatter('Girder', 'dz [mm]', c='blue', ax=axs[2], title='Vertical')
-
-    for axes in axs:
-        axes.tick_params(axis='x', which='major', direction= 'in', bottom=True, top=True, labelrotation=45,
-                         labelsize='small')
-        axes.set_xticks(tickpos)
-        axes.xaxis.labelpad = 10
-        axes.grid(b=True, axis='both', which='major', linestyle='--', alpha=0.5)
-        
-    plt.minorticks_off()
+    """salvando args de entrada"""
+    plot_colors = ['red', 'limegreen', 'blue', 'yellow', 'green', 'black']
+    # a lista de títulos é direta
+    plot_titles = plots_args_dict['title_list']
+    # para a lista de colunas do df a serem plotadas, deve-se mapear a lista 'y_list' de entrada
+    # em relação ao dict 'df_colums_dict' para estar em conformidade com os novos nomes das colunas
+    y_list = []
+    for y in plots_args_dict['y_list']:
+        if y in df_colums_dict:
+            y_list.append(df_colums_dict[y])
     
-def plot_diff_inOut (centroids_diff):
-    new_index = np.linspace(0, centroids_diff['x_in'].size-1, centroids_diff['x_in'].size)
-    centroids_diff['Index'] = new_index
-    centroids_diff.insert(0,'Girder',centroids_diff.index)
-    centroids_diff.set_index('Index',drop=True,inplace=True)
-    centroids_diff.reset_index(drop=True, inplace=True)
-    centroids_diff.rename(columns={'x_in': 'dx_in [mm]', 'y_in': 'dy_in [mm]', 'z_in': 'dz_in [mm]',
-                                   'x_out': 'dx_out [mm]', 'y_out': 'dy_out [mm]', 'z_out': 'dz_out [mm]'}, inplace=True)
-
-    fig, axs = plt.subplots(3,1, figsize=(18,9), sharex=True)
-    plt.subplots_adjust(hspace=0.3)
-    tickpos = np.linspace(0,220,21)
     
-    centroids_diff.plot.scatter('Girder', 'dx_in [mm]', c='red', ax=axs[0], title='Horizontal')
-    centroids_diff.plot.scatter('Girder', 'dy_in [mm]', c='limegreen', ax=axs[1], title='Longitudinal')
-    centroids_diff.plot.scatter('Girder', 'dz_in [mm]', c='blue', ax=axs[2], title='Vertical')
-
-    for axes in axs:
-        axes.tick_params(axis='x', which='major', direction= 'in', bottom=True, top=True, labelrotation=45,
-                         labelsize='small')
-        axes.set_xticks(tickpos)
-        axes.xaxis.labelpad = 10
-        axes.grid(b=True, axis='both', which='major', linestyle='--', alpha=0.5)
-        
+    """ chamando plots e configurando os seus eixos """
+    # caso tenhamos 3 ou menos plots, apenas uma coluna de plots será gerada, enquanto que
+    # se for mais de 3, duas serão geradas; por causa disso, a estrutura da lista 'axs' varia
+    # entre casos, e portanto deve-se ter um tratamento diferente para cada um dos 2 casos
+    if (len(y_list)<=3):
+        # plot
+        for i in range(len(y_list)):
+            results_df.plot.scatter('Girder', y_list[i], c=plot_colors[i], ax=axs[i], title=plot_titles[i])
+        # config eixos
+        for i in range(len(axs)):
+            axs[i].tick_params(axis='x', which='major', direction= 'in', bottom=True, top=True, labelrotation=45,
+                             labelsize='small')
+            axs[i].set_xticks(tickpos)
+            axs[i].xaxis.labelpad = 10
+            axs[i].grid(b=True, axis='both', which='major', linestyle='--', alpha=0.5)
+    else:
+        for i in range(len(y_list)):
+            results_df.plot.scatter('Girder', y_list[i], c=plot_colors[i], ax=axs[i%3][int(i/3)], title=plot_titles[i])
+        for i in range(len(y_list)):
+            axs[i%3][int(i/3)].tick_params(axis='x', which='major', direction= 'in', bottom=True, top=True, labelrotation=45,
+                             labelsize='small')
+            axs[i%3][int(i/3)].set_xticks(tickpos)
+            axs[i%3][int(i/3)].xaxis.labelpad = 10
+            axs[i%3][int(i/3)].grid(b=True, axis='both', which='major', linestyle='--', alpha=0.5)
+    
+    # mostrando plots
     plt.minorticks_off()
     
 
@@ -274,7 +320,8 @@ def calculate_angles (dataset):
             
             j+=1
             
-            # se proximo ponto for o ultimo da lista
+            # se proximo ponto for o ultimo da lista,
+            # sai do loop interno
             if (j>=dataset[0].size):
                 break
             
@@ -603,26 +650,36 @@ if __name__ == "__main__":
     
     local_measured = generate_localFrames("../data/frames_table_fullpre.xlsx", "Planilha4", "../data/SR_Magnets_Measured.xlsx", "Planilha1", is_sorted=True)
     centroids_measured = calculate_centroids(local_measured, 'measured')
- 
+    
+    #%%
     centroids_diff = calc_df_diff (centroids_measured, centroids_nominal)
+
+    plot_args = {'y_list' : ['x', 'y'], 'title_list' : ['horizontal', 'longitudinal']}
+    plot_girder_deviation (centroids_diff, 'centroid', plot_args)
+    
 
     inOut_nominal = calculate_inOut(local_nominals, 'nominal')
     inOut_measured = calculate_inOut(local_measured, 'measured')
-    
     inOut_diff = calc_df_diff(inOut_nominal, inOut_measured)
+
+    plot_args = {'y_list' : ['x_in', 'y_in', 'z_in', 'x_in'], 'title_list' : ['horizontal', 'longitudinal', 'vertical', 'horizontal']}
+    plot_girder_deviation (inOut_diff, 'inout', plot_args)
     
     #%%
     
     rotational_devs = calculate_angles(local_measured)
+    plot_args = {'y_list' : ['Roll', 'Pitch', 'Yaw'], 'title_list' : ['Roll', 'Pitch', 'Yaw']}
+    plot_girder_deviation (rotational_devs, 'angle', plot_args)
     
-    print(rotational_devs[:20])
-
 
 '''
 Próximas implementações:
     - [FEITO] Identificação de entrada e saída de cada berço
-    - Implementar cálculo simplificado de rotações; comparar com SA 
+    - [FEITO] Implementar cálculo simplificado de rotações
+    - [FEITO] Unificar função de plot para aceitar todos os tipos de análise
+    - Comparar desvios angulares calculados pelo script com os calculados pelo SA 
     - Importar arquivos e ordenar pela coluna de berços/pontos
+    - padronizar cabeçalhos (presença ou não etc)  dos arquivos .xlxs e dos DataFrames, além dos índices dos DF
     - cálculo de comprimento da máquina: usar método do Henrique
     - corrigir plot horizontal (x-1)
     
