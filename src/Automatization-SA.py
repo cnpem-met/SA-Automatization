@@ -19,102 +19,94 @@ def translate (P, Tx, Ty, Tz):
     return P_new
 
 
-def generate_localFrames(file_lookup_frame, sheet_lookup_frame, file_nominals, sheet_nominals, is_sorted, mode='full'):
+def generate_localFrames(lookuptable, pts_ML, mode='full'):
+        
+    # alocando um novo Dataframe (baseado no df não-modificado dos pontos) para conter
+    # as novas coordenadas locais calculadas 
+    pts_new = pts_ML.copy()
+    # utilizaremos uma cópia do df da lookuptable, pois iremos modificá-lo ao longo das iterações
+    lookup_temp = lookuptable.copy()
     
-    if (is_sorted):
-        # extraindo os dados das planilhas e alocando em Dataframes
-        lookuptable = pd.read_excel(file_lookup_frame, sheet_name=sheet_lookup_frame)
-        pts_ML = pd.read_excel(file_nominals, sheet_name=sheet_nominals, header=None)
-        
-        # alocando um novo Dataframe (baseado no df não-modificado dos pontos) para conter
-        # as novas coordenadas locais calculadas 
-        pts_new = pts_ML.copy()
-        # utilizaremos uma cópia do df da lookuptable, pois iremos modificá-lo ao longo das iterações
-        lookup_temp = lookuptable.copy()
-        
-        old_girder = ""
-        for i in range (pts_new[0].size):
-            current_girder = pts_new.loc[i,0][:7]
-            if (current_girder != old_girder):
-                
-                # modo em que nem todos os pontos/berços estão presentes na lista de pontos medidos;
-                # nesse caso, o algoritmo vai percorrer a lista até encontrar o berço em questão *
-                # *por isso, se faz necessário que a lista esteja ordenada!
-                if (mode == 'parcial'):
-                    while (current_girder != lookup_temp.at[0,'Girder']):
-                        lookup_temp = lookup_temp.drop(0).reset_index(drop=True)
-                
-                # tratativa da exceção dos berços B03 e B11, os quais devem ter suas coordenadas locais calculadas
-                # a partir de parâmetros da matriz de transformação do berço anterior e sucessor, respectivamente
-                if (current_girder[4:] == 'B03'):
-                    # pega os parâmetros de rotação do berço anterior
-                    transf_matrix = [lookup_temp.at[0,'Tx'], lookup_temp.at[0,'Ty'],lookup_temp.at[0,'Tz'],
-                                 transf_matrix_B02[3], transf_matrix_B02[4], transf_matrix_B02[5]]
-                elif (current_girder[4:] == 'B11'):
-                    # pega os parâmetros de rotação do berço sucessor
-                    if (current_girder == 'S20-B11'):
-                        # nesse caso em específico, o sucessor é o S01-B01
-                        transf_matrix = [lookup_temp.at[0,'Tx'], lookup_temp.at[0,'Ty'],lookup_temp.at[0,'Tz'],
-                                 transf_matrix_S01B01[3], transf_matrix_S01B01[4], transf_matrix_S01B01[5]]
-                    else:
-                        # no resto dos casos, o sucessor é o próximo da lookup_table
-                        transf_matrix = [lookup_temp.at[0,'Tx'], lookup_temp.at[0,'Ty'],lookup_temp.at[0,'Tz'],
-                                     lookup_temp.at[1,'Rx'], lookup_temp.at[1,'Ry'], lookup_temp.at[1,'Rz']]
-                else:
-                    # caso sem exceção, ou seja, todos os parâmetros de transformação de frame são do próprio berço
-                    transf_matrix = [lookup_temp.at[0,'Tx'], lookup_temp.at[0,'Ty'],lookup_temp.at[0,'Tz'],
-                                     lookup_temp.at[0,'Rx'], lookup_temp.at[0,'Ry'], lookup_temp.at[0,'Rz']]
-
-                
-                # salvando a matriz de transformação dos berços B02, pois serão usados p/ calculo de B03 na próxima iteração
-                if (current_girder[4:] == 'B02'):
-                    transf_matrix_B02 = transf_matrix
-                
-                # salvando a matriz de transf. do primeiro berço (S01-B01), para ser usado no cálculo do S20-B11
-                if (current_girder == 'S01-B01'):
-                    transf_matrix_S01B01 = transf_matrix
-                
-                # tirando da lista de parâm. de transf. a linha do berço que já foi usada
-                lookup_temp = lookup_temp.drop(0).reset_index(drop=True)
+    old_girder = ""
+    for i in range (pts_new.iloc[:,0].size):
+        current_girder = pts_new.index[i][:7]
+        if (current_girder != old_girder):
+            
+            # modo em que nem todos os pontos/berços estão presentes na lista de pontos medidos;
+            # nesse caso, o algoritmo vai percorrer a lista até encontrar o berço em questão *
+            # *por isso, se faz necessário que a lista esteja ordenada!
+            if (mode == 'parcial'):
+                while (current_girder != lookup_temp.index[0]):
+                    lookup_temp = lookup_temp.drop(lookup_temp.index[0])
                     
+            ref_girder = lookup_temp.index[0]
+            
+            # tratativa da exceção dos berços B03 e B11, os quais devem ter suas coordenadas locais calculadas
+            # a partir de parâmetros da matriz de transformação do berço anterior e sucessor, respectivamente
+            if (current_girder[4:] == 'B03'):
+                # pega os parâmetros de rotação do berço anterior
+                transf_matrix = [lookup_temp.at[ref_girder,'Tx'], lookup_temp.at[ref_girder,'Ty'],lookup_temp.at[ref_girder,'Tz'],
+                             transf_matrix_B02[3], transf_matrix_B02[4], transf_matrix_B02[5]]
+            elif (current_girder[4:] == 'B11'):
+                # pega os parâmetros de rotação do berço sucessor
+                if (current_girder == 'S20-B11'):
+                    # nesse caso em específico, o sucessor é o S01-B01
+                    transf_matrix = [lookup_temp.at[ref_girder,'Tx'], lookup_temp.at[ref_girder,'Ty'],lookup_temp.at[ref_girder,'Tz'],
+                             transf_matrix_S01B01[3], transf_matrix_S01B01[4], transf_matrix_S01B01[5]]
+                else:
+                    # no resto dos casos, o sucessor é o próximo da lookup_table
+                    transf_matrix = [lookup_temp.at[ref_girder,'Tx'], lookup_temp.at[ref_girder,'Ty'],lookup_temp.at[ref_girder,'Tz'],
+                                 lookup_temp.at[lookup_temp.index[1],'Rx'], lookup_temp.at[lookup_temp.index[1],'Ry'], lookup_temp.at[lookup_temp.index[1],'Rz']]
             else:
-                # enfatizando que se o berço atual é o mesmo que o da última iteração,
-                # vamos usar a mesma matriz de transformação de frame
-                transf_matrix = transf_matrix
-            
-            # pegando o ponto no frame ML
-            p = np.array([[pts_new.loc[i,1]], [pts_new.loc[i,2]], [pts_new.loc[i,3]]])
+                # caso sem exceção, ou seja, todos os parâmetros de transformação de frame são do próprio berço
+                transf_matrix = [lookup_temp.at[ref_girder,'Tx'], lookup_temp.at[ref_girder,'Ty'],lookup_temp.at[ref_girder,'Tz'],
+                                 lookup_temp.at[ref_girder,'Rx'], lookup_temp.at[ref_girder,'Ry'], lookup_temp.at[ref_girder,'Rz']]
 
             
-            # apluicando translação
-            p_trans = translate(p, transf_matrix[0], transf_matrix[1], transf_matrix[2])
+            # salvando a matriz de transformação dos berços B02, pois serão usados p/ calculo de B03 na próxima iteração
+            if (current_girder[4:] == 'B02'):
+                transf_matrix_B02 = transf_matrix
+            
+            # salvando a matriz de transf. do primeiro berço (S01-B01), para ser usado no cálculo do S20-B11
+            if (current_girder == 'S01-B01'):
+                transf_matrix_S01B01 = transf_matrix
+            
+            # tirando da lista de parâm. de transf. a linha do berço que já foi usada
+            lookup_temp = lookup_temp.drop(lookup_temp.index[0])
+                
+        else:
+            # enfatizando que se o berço atual é o mesmo que o da última iteração,
+            # vamos usar a mesma matriz de transformação de frame
+            transf_matrix = transf_matrix
+        
+        # pegando o ponto no frame ML
+        p = np.array([[pts_new.iloc[i,0]], [pts_new.iloc[i,1]], [pts_new.iloc[i,2]]])
 
-            
-            # aplicando rotação
-            p_final = rotate (p_trans, transf_matrix[3], transf_matrix[4], transf_matrix[5])
+        
+        # apluicando translação
+        p_trans = translate(p, transf_matrix[0], transf_matrix[1], transf_matrix[2])
 
-            
-            # salvando a coordenada do ponto em frame local no Dataframe pts_new
-            pts_new.loc[i,1:] = [p_final[0,0],p_final[1,0],p_final[2,0]]    
-            
-            # atualizando a referencia para o ultimo berço
-            old_girder = current_girder
-            
-        # retorna o Dataframe com os pontos nas coordenadas locais
-        return pts_new
-    
-    else:
-        # por hora, se o arquivo .xmls base não estiver ordenado o script não funcionará, 
-        # então retorna um Dataframe vazio
-        return None
+        
+        # aplicando rotação
+        p_final = rotate (p_trans, transf_matrix[3], transf_matrix[4], transf_matrix[5])
+
+        
+        # salvando a coordenada do ponto em frame local no Dataframe pts_new
+        pts_new.iloc[i,0:] = [p_final[0,0],p_final[1,0],p_final[2,0]]    
+        
+        # atualizando a referencia para o ultimo berço
+        old_girder = current_girder
+        
+    # retorna o Dataframe com os pontos nas coordenadas locais
+    return pts_new
 
 
 # função pra plot parcialmente genérica
 # in: - DataFrame results_df: dataframe de resultados gerado por calculate_angles, centroids etc
 #     - String analysis_type: "centroid"/"inout"/"angle"
 #     - Array plots_args_dict: dicionário com dados p/ as propriedade de ordenadas e títulos dos plots.
-#                                 -> Formato: {'y_list' : {var dependente plot 1, var dependente do plot 2, ...}, 
-#                                              'title_list' : {título plot 1,título plot 2, ...}}
+#                                 -> Formato: {'y_list' : [var dependente plot 1, var dependente do plot 2, ...], 
+#                                              'title_list' : [título plot 1,título plot 2, ...]}
 #
 #                                 -> Exemplos: - caso centroid -> {'y_list' : ['x','y'], 'title_list' : ['Horizontal', 'Longitudinal']}
 #                                              - caso ângulos  -> {'y_list' : ['Roll','Pitch', 'Yaw'], 'title_list' : ['Roll', 'Pitch', 'Yaw']}
@@ -177,31 +169,27 @@ def plot_girder_deviation (results_df, analysis_type, plots_args_dict):
         if y in df_colums_dict:
             y_list.append(df_colums_dict[y])
     
-    
     """ chamando plots e configurando os seus eixos """
     # caso tenhamos 3 ou menos plots, apenas uma coluna de plots será gerada, enquanto que
     # se for mais de 3, duas serão geradas; por causa disso, a estrutura da lista 'axs' varia
-    # entre casos, e portanto deve-se ter um tratamento diferente para cada um dos 2 casos
-    if (len(y_list)<=3):
-        # plot
-        for i in range(len(y_list)):
-            results_df.plot.scatter('Girder', y_list[i], c=plot_colors[i], ax=axs[i], title=plot_titles[i])
-        # config eixos
-        for i in range(len(axs)):
-            axs[i].tick_params(axis='x', which='major', direction= 'in', bottom=True, top=True, labelrotation=45,
-                             labelsize='small')
-            axs[i].set_xticks(tickpos)
-            axs[i].xaxis.labelpad = 10
-            axs[i].grid(b=True, axis='both', which='major', linestyle='--', alpha=0.5)
+    # entre casos, e portanto foi preciso padronizar em um unico formato em 'axs_new'
+    axs_new = []
+    if (num_plots <= 3):
+        if (num_plots == 1):
+            axs_new.append([axs])
+        else:
+            [axs_new.append([ax, ""]) for ax in axs]
     else:
-        for i in range(len(y_list)):
-            results_df.plot.scatter('Girder', y_list[i], c=plot_colors[i], ax=axs[i%3][int(i/3)], title=plot_titles[i])
-        for i in range(len(y_list)):
-            axs[i%3][int(i/3)].tick_params(axis='x', which='major', direction= 'in', bottom=True, top=True, labelrotation=45,
-                             labelsize='small')
-            axs[i%3][int(i/3)].set_xticks(tickpos)
-            axs[i%3][int(i/3)].xaxis.labelpad = 10
-            axs[i%3][int(i/3)].grid(b=True, axis='both', which='major', linestyle='--', alpha=0.5)
+        axs_new = axs
+
+    for i in range(len(y_list)):
+            results_df.plot.scatter('Girder', y_list[i], c=plot_colors[i], ax=axs_new[i%3][int(i/3)], title=plot_titles[i])
+    for i in range(len(y_list)):
+        axs_new[i%3][int(i/3)].tick_params(axis='x', which='major', direction= 'in', bottom=True, top=True, labelrotation=45,
+                         labelsize='small')
+        axs_new[i%3][int(i/3)].set_xticks(tickpos)
+        axs_new[i%3][int(i/3)].xaxis.labelpad = 10
+        axs_new[i%3][int(i/3)].grid(b=True, axis='both', which='major', linestyle='--', alpha=0.5)
     
     # mostrando plots
     plt.minorticks_off()
@@ -213,69 +201,69 @@ def append_values (calc_operation, x_list, y_list, z_list, dataset, current_gird
     if (current_girder[4:] == 'B03' or current_girder[4:] == 'B11'):
         if (calc_operation == 'centroid'):
             if (len(point_name)==3):
-                x_list.append(dataset.loc[index,1])
-                z_list.append(dataset.loc[index,3])
+                x_list.append(dataset.iloc[index,0])
+                z_list.append(dataset.iloc[index,2])
             elif (len(point_name) >= 6):
-                y_list.append(dataset.loc[index,2])
+                y_list.append(dataset.iloc[index,1])
                 
         elif (calc_operation == 'inOut'):
             """ A DEFINIR """
             # temporario...
             if (point_name[-2:] == 'B1'):
-                x_list[0].append(dataset.loc[index,1])
-                y_list[0].append(dataset.loc[index,2])
+                x_list[0].append(dataset.iloc[index,0])
+                y_list[0].append(dataset.iloc[index,1])
             elif (point_name[-2:] == 'MR'):
-                x_list[1].append(dataset.loc[index,1])
-                y_list[1].append(dataset.loc[index,2])
+                x_list[1].append(dataset.iloc[index,0])
+                y_list[1].append(dataset.iloc[index,1])
             else:
-                z_list[0].append(dataset.loc[index,3])
-                z_list[1].append(dataset.loc[index,3])
+                z_list[0].append(dataset.iloc[index,2])
+                z_list[1].append(dataset.iloc[index,2])
             
     elif (current_girder[4:] == 'B05' or current_girder[4:] == 'B09'):
         if (calc_operation == 'centroid'):
             if (pts_type == 'nominal'):
                 if (len(point_name) >= 6):
-                    x_list.append(dataset.loc[index,1])
-                    y_list.append(dataset.loc[index,2])
-                    z_list.append(dataset.loc[index,3])
+                    x_list.append(dataset.iloc[index,0])
+                    y_list.append(dataset.iloc[index,1])
+                    z_list.append(dataset.iloc[index,2])
                     
             elif (pts_type == 'measured'):
                 if (len(point_name) >= 5):
-                    x_list.append(dataset.loc[index,1])
-                    y_list.append(dataset.loc[index,2])
+                    x_list.append(dataset.iloc[index,0])
+                    y_list.append(dataset.iloc[index,1])
                 elif (len(point_name) == 4):
-                    z_list.append(dataset.loc[index,3])
+                    z_list.append(dataset.iloc[index,2])
                     
         elif (calc_operation == 'inOut'):
             if (point_name[-2:] == 'B2'):
-                x_list[0].append(dataset.loc[index,1])
-                y_list[0].append(dataset.loc[index,2])
+                x_list[0].append(dataset.iloc[index,0])
+                y_list[0].append(dataset.iloc[index,1])
             elif (point_name[-2:] == 'MR'):
-                x_list[1].append(dataset.loc[index,1])
-                y_list[1].append(dataset.loc[index,2])
+                x_list[1].append(dataset.iloc[index,0])
+                y_list[1].append(dataset.iloc[index,1])
                 
             if (pts_type == 'measured'):
                 if (point_name[:2] == 'LV'):
-                    z_list[0].append(dataset.loc[index,3])
-                    z_list[1].append(dataset.loc[index,3])
+                    z_list[0].append(dataset.iloc[index,2])
+                    z_list[1].append(dataset.iloc[index,2])
             else:
-                z_list[0].append(dataset.loc[index,3])
-                z_list[1].append(dataset.loc[index,3])
+                z_list[0].append(dataset.iloc[index,2])
+                z_list[1].append(dataset.iloc[index,2])
                     
     else:
         if (calc_operation == 'centroid'):
-            x_list.append(dataset.loc[index,1])
-            y_list.append(dataset.loc[index,2])
-            z_list.append(dataset.loc[index,3]) 
+            x_list.append(dataset.iloc[index,0])
+            y_list.append(dataset.iloc[index,1])
+            z_list.append(dataset.iloc[index,2]) 
         else:
             if (point_name == "C01" or point_name == "C02"):
-                x_list[0].append(dataset.loc[index,1])
-                y_list[0].append(dataset.loc[index,2])
-                z_list[0].append(dataset.loc[index,3]) 
+                x_list[0].append(dataset.iloc[index,0])
+                y_list[0].append(dataset.iloc[index,1])
+                z_list[0].append(dataset.iloc[index,2]) 
             else:
-                x_list[1].append(dataset.loc[index,1])
-                y_list[1].append(dataset.loc[index,2])
-                z_list[1].append(dataset.loc[index,3]) 
+                x_list[1].append(dataset.iloc[index,0])
+                y_list[1].append(dataset.iloc[index,1])
+                z_list[1].append(dataset.iloc[index,2]) 
         
         
     return x_list, y_list, z_list
@@ -288,41 +276,41 @@ def calculate_angles (dataset):
     pts_girder = []
     pts_name = []
     
-    while (i<dataset[0].size):
+    while (i<dataset.iloc[:,0].size):
         
-        current_girder = dataset.loc[i,0][:7]
-        point_name = dataset.loc[i,0][8:]
+        current_girder = dataset.index[i][:7]
+        point_name = dataset.index[i][8:]
         
         # adiciona na lista todos os pontos de um berço, exceto no caso de B03 e B11,
         # em que só será adicionado os pontos do multipolo
         if (current_girder[4:] == 'B03' or current_girder[4:] == 'B11'):
             if (point_name[-2:] != "B1" and point_name[-2:] != "MR"):
-                pts_girder.append([dataset.loc[i,1], dataset.loc[i,2], dataset.loc[i,3]])
+                pts_girder.append([dataset.iloc[i,0], dataset.iloc[i,1], dataset.iloc[i,2]])
                 pts_name.append(point_name)
         else:
-            pts_girder.append([dataset.loc[i,1], dataset.loc[i,2], dataset.loc[i,3]])
+            pts_girder.append([dataset.iloc[i,0], dataset.iloc[i,1], dataset.iloc[i,2]])
             pts_name.append(point_name)
         
         
         # começando a iteração sobre os outros pontos do mesmo berço
         j = i+1
-        while (current_girder == dataset.loc[j,0][:7]):
-            point_name = dataset.loc[j,0][8:]
+        while (current_girder == dataset.index[j][:7]):
+            point_name = dataset.index[j][8:]
             
             # mesma regra se aplica
             if (current_girder[4:] == 'B03' or current_girder[4:] == 'B11'):
                 if (point_name[-2:] != "B1" and point_name[-2:] != "MR"):
-                    pts_girder.append([dataset.loc[j,1], dataset.loc[j,2], dataset.loc[j,3]])
+                    pts_girder.append([dataset.iloc[j,0], dataset.iloc[j,1], dataset.iloc[j,2]])
                     pts_name.append(point_name)
             else:
-               pts_girder.append([dataset.loc[j,1], dataset.loc[j,2], dataset.loc[j,3]])
+               pts_girder.append([dataset.iloc[j,0], dataset.iloc[j,1], dataset.iloc[j,2]])
                pts_name.append(point_name)
             
             j+=1
             
             # se proximo ponto for o ultimo da lista,
             # sai do loop interno
-            if (j>=dataset[0].size):
+            if (j>=dataset.iloc[:,0].size):
                 break
             
 
@@ -367,7 +355,6 @@ def calculate_angles (dataset):
                 pass
             
             print(error_txt)
-                
             
         """ calculo dos angulos"""
         if (current_girder[4:] != 'B05' and  current_girder[4:] != 'B09'):
@@ -398,6 +385,7 @@ def calculate_angles (dataset):
             yaw = math.atan(yaw_tan) *10**3 # mrad
         
         else: # caso dos B2
+        
             # considera-se que os pontos estão ordenados
             error = False
             try:
@@ -410,10 +398,10 @@ def calculate_angles (dataset):
                 roll = pitch = yaw = -999 # valor para elucidar que houve erro no cálculo para esse berço
             else:
                 roll_tan = (np.mean([LV01[2], LV03[2]]) - LV02[2]) / (LV02[0] - np.mean([LV01[0], LV03[0]]))
-                roll = math.atan(roll_tan)
+                roll = math.atan(roll_tan) *10**3 # mrad
                 
                 pitch_tan = (LV03[2] - LV01[2]) / (LV03[1] - LV01[1])
-                pitch = math.atan(pitch_tan)
+                pitch = math.atan(pitch_tan) *10**3 # mrad
                 
                 # transladando B2 para a origem do frame
                 B2_new = np.array([[B2[0]], [B2[1]], [B2[2]]])
@@ -427,7 +415,7 @@ def calculate_angles (dataset):
                 B2MR_new = [B2MR_new[0,0], B2MR_new[1,0], B2MR_new[2,0]]
                 
                 yaw_tan = (B2MR_new[0] - B2_new[0]) / (B2MR_new[1] - B2_new[1])
-                yaw = math.atan(yaw_tan)
+                yaw = math.atan(yaw_tan) *10**3 # mrad
                 
 
                 
@@ -459,10 +447,10 @@ def calculate_centroids (dataset, pts_type):
     y_list = []
     z_list = []
     
-    while (i<dataset[0].size):
+    while (i<dataset.iloc[:,0].size):
         
-        current_girder = dataset.loc[i,0][:7]
-        point_name = dataset.loc[i,0][8:]
+        current_girder = dataset.index[i][:7]
+        point_name = dataset.index[i][8:]
         
         # insere nas listas temporarias as coordenadas do primeiro ponto do berço
         x_list, y_list, z_list = append_values ('centroid', x_list, y_list, z_list, dataset,
@@ -470,8 +458,8 @@ def calculate_centroids (dataset, pts_type):
         
         # começando a iteração sobre os outros pontos do mesmo berço
         j = i+1
-        while (current_girder == dataset.loc[j,0][:7]):
-            point_name = dataset.loc[j,0][8:]
+        while (current_girder == dataset.index[j][:7]):
+            point_name = dataset.index[j][8:]
             
             # insere nas listas temporarias as coordenadas do primeiro ponto do berço
             x_list, y_list, z_list = append_values ('centroid', x_list, y_list, z_list, dataset,
@@ -480,10 +468,10 @@ def calculate_centroids (dataset, pts_type):
 
             # tratamento de exceção de menos de 4 pontos medidos nesse berço ...
             # verifica se não é o último ponto
-            if ((j+1)<dataset[0].size):
+            if ((j+1)<dataset.iloc[:,0].size):
                 # verifica se o próximo ponto já é de um berço novo E se o berço atual não é do tipo
                 # B05 ou B09 E, finalmente, se existem menos de 4 pontos na lista de coordenadas
-                if(dataset.loc[(j+1),0][:7] != current_girder and 
+                if(dataset.index[j+1][:7] != current_girder and 
                    current_girder[4:] != 'B05' and current_girder[4:] != 'B09' and 
                    len(x_list) < 4):
                         print("exceção encontrada no berço "+current_girder+": menos de 4 pontos medidos p/ se calcular o X e Z do centroide.")                    
@@ -498,7 +486,7 @@ def calculate_centroids (dataset, pts_type):
                         """ ATENÇÃO: Eu não deveria fazer esse tratamento também para Y e Z?? """
                     
             j+=1
-            if (j>=dataset[0].size):
+            if (j>=dataset.iloc[:,0].size):
                 break
         
         # cálculo dos centroids
@@ -529,27 +517,27 @@ def calculate_inOut (dataset, pts_type):
     y_list = [[],[]]
     z_list = [[],[]]
     
-    while (i<dataset[0].size):
+    while (i<dataset.iloc[:,0].size):
         
-        current_girder = dataset.loc[i,0][:7]
-        point_name = dataset.loc[i,0][8:]
+        current_girder = dataset.index[i][:7]
+        point_name = dataset.index[i][8:]
         
         # insere nas listas temporarias as coordenadas do primeiro ponto do berço
         x_list, y_list, z_list = append_values ('inOut', x_list, y_list, z_list, dataset,
                                                                 current_girder, point_name, i, pts_type)
         # começando a iteração sobre os outros pontos do mesmo berço
         j = i+1
-        while (current_girder == dataset.loc[j,0][:7]):
-            point_name = dataset.loc[j,0][8:]
+        while (current_girder == dataset.index[j][:7]):
+            point_name = dataset.index[j][8:]
 
             # insere n
             x_list, y_list, z_list = append_values ('inOut', x_list, y_list, z_list, dataset,
                                                                     current_girder, point_name, j, pts_type)
 
             # tratamento de exceção de menos de 4 pontos medidos nesse berço
-            if ((j+1)<dataset[0].size):
+            if ((j+1)<dataset.iloc[:,0].size):
                 total_points = len(x_list[0]) + len(x_list[1])
-                if(dataset.loc[(j+1),0][:7] != current_girder and 
+                if(dataset.index[j+1][:7] != current_girder and 
                    current_girder[4:] != 'B05' and current_girder[4:] != 'B09' and 
                    total_points < 4):
                         x_list_in = x_list[0]
@@ -611,7 +599,7 @@ def calculate_inOut (dataset, pts_type):
                             print(error_text)
                             
             j+=1
-            if (j>=dataset[0].size):
+            if (j>=dataset.iloc[:,0].size):
                 break
             
         x_list_in = x_list[0]; y_list_in = y_list[0]; z_list_in = z_list[0]
@@ -640,48 +628,77 @@ def calc_df_diff (df1, df2):
     diff = df1.sub(df2)
     return diff
 
+#%%
+
+def load_and_sort_dataframe (excel_file_dir, excel_sheet, has_header):
+    key_column = 'Girder'
+    if (has_header):
+        header_val = 0
+        #key_column = 'Girder'
+        names_val = None
+    else:
+        header_val = None
+        #key_column = 0
+        names_val = ['Girder', 'x', 'y', 'z']
+    
+    # extraindo os dados das planilhas e alocando em Dataframes
+    df = pd.read_excel(excel_file_dir, sheet_name=excel_sheet, header=header_val, names=names_val)
+    df_sorted = df.sort_values(by=key_column)
+    df_sorted.reset_index(drop=True, inplace=True)
+    df_sorted = df_sorted.set_index(key_column)
+    
+    return df_sorted
+
+
 
 #%%
 
 if __name__ == "__main__":
     
-    local_nominals = generate_localFrames("../data/frames_table_fullpre.xlsx", "Planilha4", "../data/SR_nominals.xlsx", "Planilha2", is_sorted=True)
-    centroids_nominal = calculate_centroids(local_nominals, 'nominal')
+    # carregando dados das planilhas, e assegurando que os dataframes gerados estejam ordenados
+    frameTransf_lookup = load_and_sort_dataframe ("../data/input/frames_table_fullpre.xlsx", "Planilha4", has_header=True)
+    ptsML_nominals =  load_and_sort_dataframe ("../data/input/SR_nominals.xlsx", "Planilha2", has_header=False)
+    ptsML_measured = load_and_sort_dataframe ("../data/input/SR_Magnets_Measured.xlsx", "Planilha1", has_header=False)
     
-    local_measured = generate_localFrames("../data/frames_table_fullpre.xlsx", "Planilha4", "../data/SR_Magnets_Measured.xlsx", "Planilha1", is_sorted=True)
-    centroids_measured = calculate_centroids(local_measured, 'measured')
+    # gerando os pontos a partir de coordenadas locais dos berços
+    ptsLocal_nominals = generate_localFrames(frameTransf_lookup, ptsML_nominals)
+    ptsLocal_measured = generate_localFrames(frameTransf_lookup, ptsML_measured)
     
-    #%%
+    # calculando os centroides
+    centroids_nominal = calculate_centroids(ptsLocal_nominals, 'nominal')
+    centroids_measured = calculate_centroids(ptsLocal_measured, 'measured')
     centroids_diff = calc_df_diff (centroids_measured, centroids_nominal)
-
+    
+    # plotando desvios dos centroides
     plot_args = {'y_list' : ['x', 'y'], 'title_list' : ['horizontal', 'longitudinal']}
     plot_girder_deviation (centroids_diff, 'centroid', plot_args)
     
-
-    inOut_nominal = calculate_inOut(local_nominals, 'nominal')
-    inOut_measured = calculate_inOut(local_measured, 'measured')
+    # calculando as coordenadas de entrada e saída
+    inOut_nominal = calculate_inOut(ptsLocal_nominals, 'nominal')
+    inOut_measured = calculate_inOut(ptsLocal_measured, 'measured')
     inOut_diff = calc_df_diff(inOut_nominal, inOut_measured)
 
-    plot_args = {'y_list' : ['x_in', 'y_in', 'z_in', 'x_in'], 'title_list' : ['horizontal', 'longitudinal', 'vertical', 'horizontal']}
+    # plotando desvios em in/out
+    plot_args = {'y_list' : ['x_in', 'y_in', 'z_in', 'x_out', 'y_out', 'z_out'], 'title_list' : ['horizontal', 'longitudinal', 'vertical', 'horizontal', 'longitudinal', 'vertical',]}
     plot_girder_deviation (inOut_diff, 'inout', plot_args)
     
-    #%%
-    
-    rotational_devs = calculate_angles(local_measured)
-    plot_args = {'y_list' : ['Roll', 'Pitch', 'Yaw'], 'title_list' : ['Roll', 'Pitch', 'Yaw']}
+    # calculando e plotando desvios angulares
+    rotational_devs = calculate_angles(ptsLocal_measured)
+    plot_args = {'y_list' : ['Roll', 'Pitch'], 'title_list' : ['Roll', 'Title Pitch']}
     plot_girder_deviation (rotational_devs, 'angle', plot_args)
-    
+        
 
 '''
 Próximas implementações:
     - [FEITO] Identificação de entrada e saída de cada berço
     - [FEITO] Implementar cálculo simplificado de rotações
     - [FEITO] Unificar função de plot para aceitar todos os tipos de análise
-    - Comparar desvios angulares calculados pelo script com os calculados pelo SA 
-    - Importar arquivos e ordenar pela coluna de berços/pontos
-    - padronizar cabeçalhos (presença ou não etc)  dos arquivos .xlxs e dos DataFrames, além dos índices dos DF
+    - [EM ANDAMENTO] Comparar desvios angulares calculados pelo script com os calculados pelo SA 
+    - [FEITO] Importar arquivos e ordenar pela coluna de berços/pontos
+    - [OK] padronizar cabeçalhos (presença ou não etc)  dos arquivos .xlxs e dos DataFrames, além dos índices dos DF
+    - [FEITO ?] corrigir plot horizontal (x-1)
+    - implementar interface gráfica
     - cálculo de comprimento da máquina: usar método do Henrique
-    - corrigir plot horizontal (x-1)
     
-    
+
 '''
