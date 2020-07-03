@@ -4,6 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 
+
+""" Função para rotacionar um ponto """
 def rotate(P, Rx, Ry, Rz):
     rot_z = np.array([[np.cos(Rz*10**-3), -np.sin(Rz*10**-3), 0], [np.sin(Rz*10**-3), np.cos(Rz*10**-3), 0], [0, 0, 1]])
     rot_y = np.array([[np.cos(Ry*10**-3), 0, np.sin(Ry*10**-3)], [0, 1, 0], [-np.sin(Ry*10**-3), 0, np.cos(Ry*10**-3)]])
@@ -14,11 +16,14 @@ def rotate(P, Rx, Ry, Rz):
     
     return P_new
 
+""" Função para transladar um ponto """
 def translate (P, Tx, Ty, Tz):
     P_new = np.array([[P[0,0] - Tx], [P[1,0] - Ty], [P[2,0] - Tz]])
     return P_new
 
 
+""" Método que gera um dataframe com pontos em coordenadas locais (frames dos berços), a partir
+    das coordenadas globais (frame ML) e dos parâmetros de transformação de coordenadas de cada frame """
 def generate_localFrames(lookuptable, pts_ML, mode='full'):
         
     # alocando um novo Dataframe (baseado no df não-modificado dos pontos) para conter
@@ -101,17 +106,17 @@ def generate_localFrames(lookuptable, pts_ML, mode='full'):
     return pts_new
 
 
-# função pra plot parcialmente genérica
-# in: - DataFrame results_df: dataframe de resultados gerado por calculate_angles, centroids etc
-#     - String analysis_type: "centroid"/"inout"/"angle"
-#     - Array plots_args_dict: dicionário com dados p/ as propriedade de ordenadas e títulos dos plots.
-#                                 -> Formato: {'y_list' : [var dependente plot 1, var dependente do plot 2, ...], 
-#                                              'title_list' : [título plot 1,título plot 2, ...]}
-#
-#                                 -> Exemplos: - caso centroid -> {'y_list' : ['x','y'], 'title_list' : ['Horizontal', 'Longitudinal']}
-#                                              - caso ângulos  -> {'y_list' : ['Roll','Pitch', 'Yaw'], 'title_list' : ['Roll', 'Pitch', 'Yaw']}
-#                                              - caso inout    -> {'y_list' : ['x_in', 'y_in', 'z_in', 'z_out'], 'title_list' : ['horizontal', 'vertical', 'horizontal', 'vertical']}
-#
+"""Função pra plot parcialmente genérica
+in: - DataFrame results_df: dataframe de resultados gerado por calculate_angles, centroids etc
+    - String analysis_type: "centroid"/"inout"/"angle"
+    - Array plots_args_dict: dicionário com dados p/ as propriedade de ordenadas e títulos dos plots.
+                                -> Formato: {'y_list' : [var dependente plot 1, var dependente do plot 2, ...], 
+                                              'title_list' : [título plot 1,título plot 2, ...]}
+
+                                -> Exemplos: - caso centroid -> {'y_list' : ['x','y'], 'title_list' : ['Horizontal', 'Longitudinal']}
+                                              - caso ângulos  -> {'y_list' : ['Roll','Pitch', 'Yaw'], 'title_list' : ['Roll', 'Pitch', 'Yaw']}
+                                              - caso inout    -> {'y_list' : ['x_in', 'y_in', 'z_in', 'z_out'], 'title_list' : ['horizontal', 'vertical', 'horizontal', 'vertical']}
+"""
 def plot_girder_deviation (results_df, analysis_type, plots_args_dict):
     # pegando uma cópia do df original
     results_df = results_df.copy()
@@ -128,6 +133,11 @@ def plot_girder_deviation (results_df, analysis_type, plots_args_dict):
     elif (analysis_type == 'angle'):
         colum1_name = 'Roll'
         df_colums_dict = {'Roll': 'u_roll [mrad]', 'Pitch': 'u_pitch [mrad]', 'Yaw':'u_yaw [mrad]'}
+    
+    elif (analysis_type == 'inout_delta'):
+        colum1_name = 'delta_x'
+        df_colums_dict = {'delta_x': 'dx [mm]', 'delta_y': 'dy [mm]', 'delta_z': 'dz [mm]'}
+        
     else:
         print("Falha no plot: tipo de análise não reconhecida.")
         return
@@ -195,25 +205,30 @@ def plot_girder_deviation (results_df, analysis_type, plots_args_dict):
     plt.minorticks_off()
     
 
+""" Método auxiliar que faz as tratativas de seleção de pontos que irão compor os cálculos 
+    dos centroides e das coordenadas de entrada e saída """
 def append_values (calc_operation, x_list, y_list, z_list, dataset, current_girder, point_name, index, pts_type):
     
     # criação de listas de coordendas separadas(x, y e z) para cálculo do centróide segundo algumas exceções
     if (current_girder[4:] == 'B03' or current_girder[4:] == 'B11'):
         if (calc_operation == 'centroid'):
             if (len(point_name)==3):
-                x_list.append(dataset.iloc[index,0])
-                z_list.append(dataset.iloc[index,2])
+                x_list['pts_name'].append(point_name)
+                z_list['pts_name'].append(point_name)
+                x_list['pts_val'].append(dataset.iloc[index,0] *-1)
+                z_list['pts_val'].append(dataset.iloc[index,2])
             elif (len(point_name) >= 6):
-                y_list.append(dataset.iloc[index,1])
+                y_list['pts_name'].append(point_name)
+                y_list['pts_val'].append(dataset.iloc[index,1])
                 
         elif (calc_operation == 'inOut'):
             """ A DEFINIR """
             # temporario...
             if (point_name[-2:] == 'B1'):
-                x_list[0].append(dataset.iloc[index,0])
+                x_list[0].append(dataset.iloc[index,0] *-1)
                 y_list[0].append(dataset.iloc[index,1])
             elif (point_name[-2:] == 'MR'):
-                x_list[1].append(dataset.iloc[index,0])
+                x_list[1].append(dataset.iloc[index,0] *-1)
                 y_list[1].append(dataset.iloc[index,1])
             else:
                 z_list[0].append(dataset.iloc[index,2])
@@ -223,23 +238,29 @@ def append_values (calc_operation, x_list, y_list, z_list, dataset, current_gird
         if (calc_operation == 'centroid'):
             if (pts_type == 'nominal'):
                 if (len(point_name) >= 6):
-                    x_list.append(dataset.iloc[index,0])
-                    y_list.append(dataset.iloc[index,1])
-                    z_list.append(dataset.iloc[index,2])
+                    x_list['pts_name'].append(point_name)
+                    y_list['pts_name'].append(point_name)
+                    z_list['pts_name'].append(point_name)
+                    x_list['pts_val'].append(dataset.iloc[index,0] *-1)
+                    y_list['pts_val'].append(dataset.iloc[index,1])
+                    z_list['pts_val'].append(dataset.iloc[index,2])
                     
             elif (pts_type == 'measured'):
                 if (len(point_name) >= 5):
-                    x_list.append(dataset.iloc[index,0])
-                    y_list.append(dataset.iloc[index,1])
+                    x_list['pts_name'].append(point_name)
+                    y_list['pts_name'].append(point_name)
+                    x_list['pts_val'].append(dataset.iloc[index,0] *-1)
+                    y_list['pts_val'].append(dataset.iloc[index,1])
                 elif (len(point_name) == 4):
-                    z_list.append(dataset.iloc[index,2])
+                    z_list['pts_name'].append(point_name)
+                    z_list['pts_val'].append(dataset.iloc[index,2])
                     
         elif (calc_operation == 'inOut'):
             if (point_name[-2:] == 'B2'):
-                x_list[0].append(dataset.iloc[index,0])
+                x_list[0].append(dataset.iloc[index,0] *-1)
                 y_list[0].append(dataset.iloc[index,1])
             elif (point_name[-2:] == 'MR'):
-                x_list[1].append(dataset.iloc[index,0])
+                x_list[1].append(dataset.iloc[index,0] *-1)
                 y_list[1].append(dataset.iloc[index,1])
                 
             if (pts_type == 'measured'):
@@ -252,22 +273,27 @@ def append_values (calc_operation, x_list, y_list, z_list, dataset, current_gird
                     
     else:
         if (calc_operation == 'centroid'):
-            x_list.append(dataset.iloc[index,0])
-            y_list.append(dataset.iloc[index,1])
-            z_list.append(dataset.iloc[index,2]) 
+            x_list['pts_name'].append(point_name)
+            y_list['pts_name'].append(point_name)
+            z_list['pts_name'].append(point_name)
+            x_list['pts_val'].append(dataset.iloc[index,0] *-1)
+            y_list['pts_val'].append(dataset.iloc[index,1])
+            z_list['pts_val'].append(dataset.iloc[index,2]) 
         else:
             if (point_name == "C01" or point_name == "C02"):
-                x_list[0].append(dataset.iloc[index,0])
+                x_list[0].append(dataset.iloc[index,0] *-1)
                 y_list[0].append(dataset.iloc[index,1])
                 z_list[0].append(dataset.iloc[index,2]) 
             else:
-                x_list[1].append(dataset.iloc[index,0])
+                x_list[1].append(dataset.iloc[index,0] *-1)
                 y_list[1].append(dataset.iloc[index,1])
                 z_list[1].append(dataset.iloc[index,2]) 
         
         
     return x_list, y_list, z_list
 
+
+""" Método que calcula os desvios angulares de Roll, Pitch e Yaw de cada berço """
 def calculate_angles (dataset):
     
     angles_df = pd.DataFrame(columns=['Girder', 'Roll', 'Pitch', 'Yaw'])
@@ -434,8 +460,7 @@ def calculate_angles (dataset):
     # retorna o df com os termos no tipo numérico certo
     return angles_df.astype('float32')
 
-
-
+"""" Método para cálculo das coordenadas dos centroides dos berços """
 def calculate_centroids (dataset, pts_type):
 
     # DataFrame que conterá os centroids ao final dessa função
@@ -443,9 +468,9 @@ def calculate_centroids (dataset, pts_type):
     
     # variáveis auxiliares 
     i = 0
-    x_list = []
-    y_list = []
-    z_list = []
+    x_list = {'pts_name':[],'pts_val':[]}
+    y_list = {'pts_name':[],'pts_val':[]}
+    z_list = {'pts_name':[],'pts_val':[]}
     
     while (i<dataset.iloc[:,0].size):
         
@@ -473,31 +498,47 @@ def calculate_centroids (dataset, pts_type):
                 # B05 ou B09 E, finalmente, se existem menos de 4 pontos na lista de coordenadas
                 if(dataset.index[j+1][:7] != current_girder and 
                    current_girder[4:] != 'B05' and current_girder[4:] != 'B09' and 
-                   len(x_list) < 4):
+                   len(x_list['pts_name']) < 4):
                         print("exceção encontrada no berço "+current_girder+": menos de 4 pontos medidos p/ se calcular o X e Z do centroide.")                    
-                        positive_list = []
-                        negative_list = []
-                        for point in x_list:
-                            if (point < 0):
-                                negative_list.append(point)
-                            else:
-                                positive_list.append(point)
-                        x_list = [np.mean(negative_list), np.mean(positive_list)]
-                        """ ATENÇÃO: Eu não deveria fazer esse tratamento também para Y e Z?? """
-                    
+                        
+                        if (current_girder[4:] == 'B11'):
+                            pts_list = ['C09', 'C10', 'C11', 'C12']
+                        else:
+                            pts_list = ['C01', 'C02', 'C03', 'C04']
+                        
+                        
+                        for pt_name in pts_list:
+                            if (not pt_name in x_list['pts_name']):
+                                missing_pt = pt_name
+                                break
+                                
+                        
+                        if (missing_pt == 'C01' or missing_pt == 'C09'): # x_list = z_list = [C02, C03, C04]
+                            x_list['pts_val'] = [np.mean([x_list['pts_val'][0], x_list['pts_val'][1]]), x_list['pts_val'][2]]
+                            z_list['pts_val'] = [np.mean([z_list['pts_val'][1], z_list['pts_val'][2]]), z_list['pts_val'][0]]
+                        elif (missing_pt == 'C02' or missing_pt == 'C10'): # x_list = z_list = [C01, C03, C04]
+                            x_list['pts_val'] = [np.mean([x_list['pts_val'][0], x_list['pts_val'][2]]), x_list['pts_val'][1]]
+                            z_list['pts_val'] = [np.mean([z_list['pts_val'][1], z_list['pts_val'][2]]), z_list['pts_val'][0]]
+                        elif (missing_pt == 'C03' or missing_pt == 'C11'): # x_list = z_list = [C01, C02, C04]
+                            x_list['pts_val'] = [np.mean([x_list['pts_val'][0], x_list['pts_val'][2]]), x_list['pts_val'][1]]
+                            z_list['pts_val'] = [np.mean([z_list['pts_val'][0], z_list['pts_val'][1]]), z_list['pts_val'][2]]
+                        else: # x_list = z_list = [C01, C02, C03]
+                            x_list['pts_val'] = [np.mean([x_list['pts_val'][1], x_list['pts_val'][2]]), x_list['pts_val'][0]]
+                            z_list['pts_val'] = [np.mean([z_list['pts_val'][0], z_list['pts_val'][1]]), z_list['pts_val'][2]]
+
             j+=1
             if (j>=dataset.iloc[:,0].size):
                 break
         
         # cálculo dos centroids
-        centr_data = pd.DataFrame(data=np.array([[current_girder, np.mean(x_list).round(4), np.mean(y_list).round(4), np.mean(z_list).round(4)]]),
+        centr_data = pd.DataFrame(data=np.array([[current_girder, np.mean(x_list['pts_val']).round(4), np.mean(y_list['pts_val']).round(4), np.mean(z_list['pts_val']).round(4)]]),
                                   columns=['Girder', 'x', 'y', 'z'])
         centroid_df = centroid_df.append(centr_data, ignore_index=True)
         
         i = j
-        x_list = []
-        y_list = []
-        z_list = []
+        x_list = {'pts_name':[],'pts_val':[]}
+        y_list = {'pts_name':[],'pts_val':[]}
+        z_list = {'pts_name':[],'pts_val':[]}
     
     # torna os itens da coluna 'girder' nos índices do dataframe,
     # necessário para usar as funções de cálculo aritimético entre dataframes
@@ -507,6 +548,8 @@ def calculate_centroids (dataset, pts_type):
     return centroid_df.astype('float32')
     
 
+""" Método para geração de um dataframe que contenha as coordenadas de entrada
+    e saída de cada berço """
 def calculate_inOut (dataset, pts_type):
     # DataFrame que conterá os centroids ao final dessa função
     inout_df = pd.DataFrame(columns=['Girder', 'x_in', 'y_in', 'z_in', 'x_out', 'y_out', 'z_out'])
@@ -623,22 +666,43 @@ def calculate_inOut (dataset, pts_type):
     # retorna o df com os termos no tipo numérico certo
     return inout_df.astype('float32')
 
+""" Método para cálculo entre os deltas entre as coordenadas de entrada de um berço
+    e as coord. de saída de seu antecessor """
+def calc_delta_inout (inout_df):
+    inout_delta = pd.DataFrame(columns=['Girder', 'delta_x', 'delta_y', 'delta_z'])
+    
+    for i in range (inout_df.iloc[:,0].size):
+        cur_girder = inout_df.index[i]
+        if (cur_girder == 'S01-B01'):
+            ref_girder = 'S20-B11'
+        else:
+            ref_girder = inout_df.index[i-1]
 
+        data_arg = np.array([[cur_girder, inout_df.loc[cur_girder, 'x_in'] - inout_df.loc[ref_girder, 'x_out'],
+                            inout_df.loc[cur_girder, 'y_in'] - inout_df.loc[ref_girder, 'y_out'],
+                            inout_df.loc[cur_girder, 'z_in'] - inout_df.loc[ref_girder, 'z_out']]])
+                    
+        data_df = pd.DataFrame(data=data_arg, columns=['Girder', 'delta_x', 'delta_y', 'delta_z'])
+        inout_delta = inout_delta.append(data_df, ignore_index=True)
+    
+    inout_delta = inout_delta.set_index('Girder')
+    return inout_delta.astype('float32')
+
+
+""" Método para calcular a diferença entre 2 dfs com a mesma estrutura """
 def calc_df_diff (df1, df2):
     diff = df1.sub(df2)
     return diff
 
-#%%
-
+""" Método que carrega dados em um dataframe a partir de planilhas excel,
+    além de ordenar os dados e criar a coluna de índices com os nomes dos berços """
 def load_and_sort_dataframe (excel_file_dir, excel_sheet, has_header):
     key_column = 'Girder'
     if (has_header):
         header_val = 0
-        #key_column = 'Girder'
         names_val = None
     else:
         header_val = None
-        #key_column = 0
         names_val = ['Girder', 'x', 'y', 'z']
     
     # extraindo os dados das planilhas e alocando em Dataframes
@@ -650,16 +714,27 @@ def load_and_sort_dataframe (excel_file_dir, excel_sheet, has_header):
     return df_sorted
 
 
+""" Método para atualizar um dataframe que tenha dados obsoletos; a função funciona substituindo as
+    linhas do df do 2o argumento (updated_parcial...) nas linhas correspondentes no df do 1o argumento """
+def update_dataframe (old_fully_df, updated_parcial_df):
+    
+    new_fully_df = old_fully_df.copy()
+    
+    new_fully_df.loc[updated_parcial_df.index] = np.nan
+    new_fully_df = new_fully_df.combine_first(updated_parcial_df)
+    
+    return new_fully_df
 
-#%%
 
+
+""" Main do script... """
 if __name__ == "__main__":
     
     # carregando dados das planilhas, e assegurando que os dataframes gerados estejam ordenados
     frameTransf_lookup = load_and_sort_dataframe ("../data/input/frames_table_fullpre.xlsx", "Planilha4", has_header=True)
     ptsML_nominals =  load_and_sort_dataframe ("../data/input/SR_nominals.xlsx", "Planilha2", has_header=False)
-    ptsML_measured = load_and_sort_dataframe ("../data/input/SR_Magnets_Measured.xlsx", "Planilha1", has_header=False)
-    
+    ptsML_measured = load_and_sort_dataframe ("../data/input/SR_Magnets_Measured_rev2.xlsx", "Planilha1", has_header=False)
+
     # gerando os pontos a partir de coordenadas locais dos berços
     ptsLocal_nominals = generate_localFrames(frameTransf_lookup, ptsML_nominals)
     ptsLocal_measured = generate_localFrames(frameTransf_lookup, ptsML_measured)
@@ -667,7 +742,7 @@ if __name__ == "__main__":
     # calculando os centroides
     centroids_nominal = calculate_centroids(ptsLocal_nominals, 'nominal')
     centroids_measured = calculate_centroids(ptsLocal_measured, 'measured')
-    centroids_diff = calc_df_diff (centroids_measured, centroids_nominal)
+    centroids_diff = calc_df_diff (centroids_measured, centroids_nominal) 
     
     # plotando desvios dos centroides
     plot_args = {'y_list' : ['x', 'y'], 'title_list' : ['horizontal', 'longitudinal']}
@@ -676,7 +751,7 @@ if __name__ == "__main__":
     # calculando as coordenadas de entrada e saída
     inOut_nominal = calculate_inOut(ptsLocal_nominals, 'nominal')
     inOut_measured = calculate_inOut(ptsLocal_measured, 'measured')
-    inOut_diff = calc_df_diff(inOut_nominal, inOut_measured)
+    inOut_diff = calc_df_diff(inOut_measured, inOut_nominal)
 
     # plotando desvios em in/out
     plot_args = {'y_list' : ['x_in', 'y_in', 'z_in', 'x_out', 'y_out', 'z_out'], 'title_list' : ['horizontal', 'longitudinal', 'vertical', 'horizontal', 'longitudinal', 'vertical',]}
@@ -684,21 +759,28 @@ if __name__ == "__main__":
     
     # calculando e plotando desvios angulares
     rotational_devs = calculate_angles(ptsLocal_measured)
-    plot_args = {'y_list' : ['Roll', 'Pitch'], 'title_list' : ['Roll', 'Title Pitch']}
+    plot_args = {'y_list' : ['Roll', 'Pitch'], 'title_list' : ['Roll', 'Pitch']}
     plot_girder_deviation (rotational_devs, 'angle', plot_args)
-        
+    
+    # calculando e plotando os deltas entre entrada e saída de berços adjacentes
+    inout_delta = calc_delta_inout (inOut_diff)
+    plot_args = {'y_list' : ['delta_x', 'delta_y', 'delta_z'], 'title_list' : ['dX', 'dY', 'dZ']}
+    plot_girder_deviation (inout_delta, 'inout_delta', plot_args)
+
 
 '''
 Próximas implementações:
     - [FEITO] Identificação de entrada e saída de cada berço
     - [FEITO] Implementar cálculo simplificado de rotações
     - [FEITO] Unificar função de plot para aceitar todos os tipos de análise
-    - [EM ANDAMENTO] Comparar desvios angulares calculados pelo script com os calculados pelo SA 
+    - [FEITO] Comparar desvios angulares e centroids calculados pelo script com os calculados pelo SA 
     - [FEITO] Importar arquivos e ordenar pela coluna de berços/pontos
-    - [OK] padronizar cabeçalhos (presença ou não etc)  dos arquivos .xlxs e dos DataFrames, além dos índices dos DF
-    - [FEITO ?] corrigir plot horizontal (x-1)
+    - [FEITO] padronizar cabeçalhos (presença ou não etc)  dos arquivos .xlxs e dos DataFrames, além dos índices dos DF
+    - [FEITO] implementar função que atualiza dataframe a partir de outro df parcial com dados mais atualizados
+    - [FEITO] corrigir plot horizontal (x * -1)
+    - [FEITO] implementar ferramenta de cálculo de delta entre entrada e saida de berços vizinhos
+    - comparar resultados com diferentes métodos de tratativas em casos de pontos faltantes
+    - cálculo de comprimento da máquina
     - implementar interface gráfica
-    - cálculo de comprimento da máquina: usar método do Henrique
-    
 
 '''
