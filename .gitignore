@@ -5,3 +5,4 @@ data/análise/
 
 .vscode/
 src/.vscode/
+src/__pycache__
