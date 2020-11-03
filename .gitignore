@@ -2,3 +2,6 @@ ignore/
 
 data/output/
 data/análise/
+
+.vscode/
+src/.vscode/
