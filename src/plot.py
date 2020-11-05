@@ -39,6 +39,11 @@ class Plot(object):
             df_colums_dict = {
                 'delta_x': 'dx [mm]', 'delta_y': 'dy [mm]', 'delta_z': 'dz [mm]'}
 
+        elif (analysis_type == 'allDoFs'):
+            colum1_name = 'Tx'
+            df_colums_dict = {
+                'Tx': 'dx [mm]', 'Ty': 'dy [mm]', 'Tz': 'dz [mm]', 'Rx': 'roll [mrad]', 'Ry': 'pitch [mrad]', 'Rz': 'yaw [mrad]'}
+
         else:
             print("Falha no plot: tipo de análise não reconhecida.")
             return
@@ -75,6 +80,10 @@ class Plot(object):
         plot_colors = ['red', 'limegreen', 'blue', 'yellow', 'green', 'black']
         # a lista de títulos é direta
         plot_titles = plots_args_dict['title_list']
+
+        # titulo da figura
+        fig.suptitle(plots_args_dict['fig_title'], fontsize=16)
+
         # para a lista de colunas do df a serem plotadas, deve-se mapear a lista 'y_list' de entrada
         # em relação ao dict 'df_colums_dict' para estar em conformidade com os novos nomes das colunas
         y_list = []

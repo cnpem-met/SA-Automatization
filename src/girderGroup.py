@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import math
+from scipy.optimize import minimize
 from pointGroup import PointGroup
 
 
@@ -247,7 +248,18 @@ class GirderGroup(object):
         # retorna o df com os termos no tipo numérico certo
         self.inOut = inout_df.astype('float32')
 
-    """ Método auxiliar que faz as tratativas de seleção de pontos que irão compor os cálculos 
+    """ Método auxiliar para checar o tipo do berço a partir de seu nome """
+    @staticmethod
+    def checkGirderType(girderName):
+        if (girderName[4:] == 'B03' or girderName[4:] == 'B11'):
+            girderType = 'B1'
+        elif (girderName[4:] == 'B05' or girderName[4:] == 'B09'):
+            girderType = 'B2'
+        else:
+            girderType = 'multi'
+        return girderType
+
+    """ Método auxiliar que faz as tratativas de seleção de pontos que irão compor os cálculos
     dos centroides e das coordenadas de entrada e saída """
     @staticmethod
     def append_values(calc_operation, x_list, y_list, z_list, dataset, current_girder, point_name, index, pts_type):
@@ -276,6 +288,14 @@ class GirderGroup(object):
                 else:
                     z_list[0].append(dataset.iloc[index, 2])
                     z_list[1].append(dataset.iloc[index, 2])
+            else:
+                # caso do cálculo de todos os DoFs
+                x_list['pts_name'].append(point_name)
+                y_list['pts_name'].append(point_name)
+                z_list['pts_name'].append(point_name)
+                x_list['pts_val'].append(dataset.iloc[index, 0] * -1)
+                y_list['pts_val'].append(dataset.iloc[index, 1])
+                z_list['pts_val'].append(dataset.iloc[index, 2])
 
         elif (current_girder[4:] == 'B05' or current_girder[4:] == 'B09'):
             if (calc_operation == 'centroid'):
@@ -313,6 +333,14 @@ class GirderGroup(object):
                 else:
                     z_list[0].append(dataset.iloc[index, 2])
                     z_list[1].append(dataset.iloc[index, 2])
+            else:
+                # caso do cálculo de todos os DoFs
+                x_list['pts_name'].append(point_name)
+                y_list['pts_name'].append(point_name)
+                z_list['pts_name'].append(point_name)
+                x_list['pts_val'].append(dataset.iloc[index, 0] * -1)
+                y_list['pts_val'].append(dataset.iloc[index, 1])
+                z_list['pts_val'].append(dataset.iloc[index, 2])
 
         else:
             if (calc_operation == 'centroid'):
@@ -322,7 +350,7 @@ class GirderGroup(object):
                 x_list['pts_val'].append(dataset.iloc[index, 0] * -1)
                 y_list['pts_val'].append(dataset.iloc[index, 1])
                 z_list['pts_val'].append(dataset.iloc[index, 2])
-            else:
+            elif (calc_operation == 'inOut'):
                 if (point_name == "C01" or point_name == "C02"):
                     x_list[0].append(dataset.iloc[index, 0] * -1)
                     y_list[0].append(dataset.iloc[index, 1])
@@ -331,12 +359,23 @@ class GirderGroup(object):
                     x_list[1].append(dataset.iloc[index, 0] * -1)
                     y_list[1].append(dataset.iloc[index, 1])
                     z_list[1].append(dataset.iloc[index, 2])
+            else:
+                # caso do cálculo de todos os DoFs
+                x_list['pts_name'].append(point_name)
+                y_list['pts_name'].append(point_name)
+                z_list['pts_name'].append(point_name)
+                x_list['pts_val'].append(dataset.iloc[index, 0] * -1)
+                y_list['pts_val'].append(dataset.iloc[index, 1])
+                z_list['pts_val'].append(dataset.iloc[index, 2])
 
         return x_list, y_list, z_list
 
     """ (Obsoleto) Método que calcula os desvios angulares de Roll, Pitch e Yaw de cada berço """
     @staticmethod
-    def calculate_angles(ptList):
+    def calculate_angles(girderGroup):
+
+        ptList = girderGroup.pointGroup.ptList
+
         angles_df = pd.DataFrame(columns=['Girder', 'Roll', 'Pitch', 'Yaw'])
 
         i = 0
@@ -471,8 +510,8 @@ class GirderGroup(object):
                     error = True
 
                 if(error):
-                    # valor para elucidar que houve erro no cálculo para esse berço
-                    roll = pitch = yaw = -999
+                    # valor para não compremeter o plot
+                    roll = pitch = yaw = 0
                 else:
                     roll_tan = (np.mean([LV01[2], LV03[2]]) - LV02[2]) / \
                         (LV02[0] - np.mean([LV01[0], LV03[0]]))
@@ -542,10 +581,258 @@ class GirderGroup(object):
 
     """ Método para calcular a diferença entre 2 ptLists ponto a ponto """
     @staticmethod
-    def evalDiff_pointToPoint(girder_ref, girder_meas):
-        diff = girder_meas.sub(girder_ref)
+    def evalDiff_pointToPoint(ptListRef, ptListMeas):
+        diff = ptListMeas.sub(ptListRef)
         return diff
 
+    """ Método para gerar uma estrutura com a relação de berços e pontos (nomes e coordenadas) contidos neles """
     @staticmethod
-    def evalDiff_bestFit(girder_ref, girder_meas):
-        pass
+    def generateGirderDictionary(ptList):
+        girderDict = {'girder': [], 'x_list': [], 'y_list': [], 'z_list': []}
+
+        # variáveis auxiliares
+        i = 0
+        x_list = {'pts_name': [], 'pts_val': []}
+        y_list = {'pts_name': [], 'pts_val': []}
+        z_list = {'pts_name': [], 'pts_val': []}
+
+        # passando pela lista de pontos e estruturando dicionario
+        while (i < ptList.iloc[:, 0].size):
+
+            current_girder = ptList.index[i][:7]
+            point_name = ptList.index[i][8:]
+
+            # insere nas listas temporarias as coordenadas do primeiro ponto do berço
+            x_list, y_list, z_list = GirderGroup.append_values('all-dofs', x_list, y_list, z_list, ptList,
+                                                               current_girder, point_name, i, 'nominal')
+
+            # começando a iteração sobre os outros pontos do mesmo berço
+            j = i+1
+            while (current_girder == ptList.index[j][:7]):
+                point_name = ptList.index[j][8:]
+
+                # insere nas listas temporarias as coordenadas dos outros pontos do mesmo berço
+                x_list, y_list, z_list = GirderGroup.append_values('all-dofs', x_list, y_list, z_list, ptList,
+                                                                   current_girder, point_name, j, 'nominal')
+
+                j += 1
+                if (j >= ptList.iloc[:, 0].size):
+                    break
+
+            girderDict['girder'].append(current_girder)
+            girderDict['x_list'].append(x_list)
+            girderDict['y_list'].append(y_list)
+            girderDict['z_list'].append(z_list)
+
+            i = j
+            x_list = {'pts_name': [], 'pts_val': []}
+            y_list = {'pts_name': [], 'pts_val': []}
+            z_list = {'pts_name': [], 'pts_val': []}
+
+        return girderDict
+
+    """ Método para avaliar os desvios entre dois grupos de pontos a partir do bestfit entre eles
+        e segundo regras intrínsicas a cada tipo de berço """
+    @staticmethod
+    def evalDiff_bestFit(ptList_ref, ptList_meas):
+
+        header = ['Girder', 'Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz']
+
+        # DataFrame que conterá os centroids ao final dessa função
+        deviation = pd.DataFrame(columns=header)
+
+        # gerando estruturas com pontos mapeados por berço
+        refPoints = GirderGroup.generateGirderDictionary(ptList_ref)
+        measPoints = GirderGroup.generateGirderDictionary(ptList_meas)
+
+        # iterando sobre pontos medidos e aplicando bestfit
+        for currentGirder in measPoints['girder']:
+            # extraindo índice do berço atual *
+            # * se todos os berços estiverem presentes em ambos os arquivos de entrada, os índices devem coincidir
+            girderMeasIndex = measPoints['girder'].index(currentGirder)
+            girderRefIndex = refPoints['girder'].index(currentGirder)
+
+            # inicializando arrays para conterem pontos
+            #   full = todos os graus de liberdade serão considerados no bestfit
+            #   partial = composição de graus de liberdade
+            ptsMeas_full = []
+            ptsRef_full = []
+            ptsMeas_partial = [[], []]
+            ptsRef_partial = [[], []]
+
+            # identificando tipo do berço
+            girderType = GirderGroup.checkGirderType(currentGirder)
+
+            # rotina para extrair apenas pontos com nomes que estejam definidos tanto nas medições quanto nos nominais
+            for pointName in measPoints['x_list'][girderMeasIndex]['pts_name']:
+                # verifica se ponto está em ambas as listas de pontos do atual berço
+                if pointName in refPoints['x_list'][girderRefIndex]['pts_name']:
+                    # salva o indice referente ao nome do ponto
+                    ptMeasIndex = measPoints['x_list'][girderMeasIndex]['pts_name'].index(
+                        pointName)
+                    ptRefIndex = refPoints['x_list'][girderRefIndex]['pts_name'].index(
+                        pointName)
+
+                    # extrai as coordenadas do referido ponto, tanto pro nominal quanto pro medido
+                    ptMeas = [measPoints['x_list'][girderMeasIndex]['pts_val'][ptMeasIndex], measPoints['y_list']
+                              [girderMeasIndex]['pts_val'][ptMeasIndex], measPoints['z_list'][girderMeasIndex]['pts_val'][ptMeasIndex]]
+
+                    ptRef = [refPoints['x_list'][girderRefIndex]['pts_val'][ptRefIndex], refPoints['y_list']
+                             [girderRefIndex]['pts_val'][ptRefIndex], refPoints['z_list'][girderRefIndex]['pts_val'][ptRefIndex]]
+
+                    # diferenciando grupos de pontos para bestfits que exijam composição de graus de liberdade
+                    if (girderType == 'multi'):
+                        # adicionando pontos às suas respectivas listas
+                        ptsMeas_full.append(ptMeas)
+                        ptsRef_full.append(ptRef)
+
+                    elif (girderType == 'B1'):
+                        # diferenciando conjunto de pontos para comporem diferentes graus de liberdade
+                        if(pointName[-2:] == 'B1' or pointName[-4:] == 'B1MR'):
+                            # DoFs: [Ty]
+                            ptsMeas_partial[0].append(ptMeas)
+                            ptsRef_partial[0].append(ptRef)
+                        else:
+                            # DoFs: [Tx, Tz, Rx, Ry, Rz]
+                            ptsMeas_partial[1].append(ptMeas)
+                            ptsRef_partial[1].append(ptRef)
+
+                    elif (girderType == 'B2'):
+                        # diferenciando conjunto de pontos para comporem diferentes graus de liberdade
+                        if (pointName[:2] == 'LV'):
+                            # DoFs: [Tz, Rx, Ry]
+                            ptsMeas_partial[0].append(ptMeas)
+                            ptsRef_partial[0].append(ptRef)
+                        else:
+                            # DoFs: [Tx, Ty, Rz]
+                            ptsMeas_partial[1].append(ptMeas)
+                            ptsRef_partial[1].append(ptRef)
+
+            # Parâmetros iniciais para o minimize
+            (Tx, Ty, Tz, Rx, Ry, Rz) = (0, 0, 0, 0, 0, 0)
+
+            if (girderType == 'multi'):
+                # definindo os parâmetros para esse berço
+                params = np.array([Tx, Ty, Tz, Rx, Ry, Rz])
+                dofs = ['Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz']
+
+                # aplicando a operação de minimização para achar os parâmetros de transformação
+                transfMatrix = minimize(fun=GirderGroup.calculate_transformation, x0=params, args=(ptsMeas_full, ptsRef_full, dofs),
+                                        method='SLSQP', options={'ftol': 1e-06, 'disp': False})['x']
+
+            elif (girderType == 'B1'):
+                # primeira operação -> doFs: [Ty]
+                params = np.array([Ty])
+                dofs = ['Ty']
+
+                partial1 = minimize(fun=GirderGroup.calculate_transformation, x0=params, args=(ptsMeas_partial[0], ptsRef_partial[0], dofs),
+                                    method='SLSQP', options={'ftol': 1e-06, 'disp': False})['x']
+
+                # segunda operação -> doFs: [Tx, Tz, Rx, Ry, Rz]
+                params = np.array([Tx, Tz, Rx, Ry, Rz])
+                dofs = ['Tx', 'Tz', 'Rx', 'Ry', 'Rz']
+
+                partial2 = minimize(fun=GirderGroup.calculate_transformation, x0=params, args=(ptsMeas_partial[1], ptsRef_partial[1], dofs),
+                                    method='SLSQP', options={'ftol': 1e-06, 'disp': False})['x']
+
+                # juntando resultados em unica array
+                transfMatrix = np.array(
+                    [partial2[0], partial1[0], partial2[1], partial2[2], partial2[3], partial2[4]])
+
+            elif (girderType == 'B2'):
+                # primeira operação -> doFs: [Tz, Rx, Ry]
+                params = np.array([Tz, Rx, Ry])
+                dofs = ['Tz', 'Rx', 'Ry']
+
+                partial1 = minimize(fun=GirderGroup.calculate_transformation, x0=params, args=(ptsMeas_partial[0], ptsRef_partial[0], dofs),
+                                    method='SLSQP', options={'ftol': 1e-06, 'disp': False})['x']
+
+                # segunda operação -> doFs: [Tx, Ty, Rz]
+                params = np.array([Tz, Rx, Ry])
+                dofs = ['Tx', 'Ty', 'Rz']
+
+                partial2 = minimize(fun=GirderGroup.calculate_transformation, x0=params, args=(ptsMeas_partial[1], ptsRef_partial[1], dofs),
+                                    method='SLSQP', options={'ftol': 1e-06, 'disp': False})['x']
+
+                # juntando resultados em unica array
+                transfMatrix = np.array(
+                    [partial2[0], partial2[1], partial1[0], partial1[1], partial1[2], partial2[2]])
+
+            girderDeviation = pd.DataFrame(data=np.array([[currentGirder, transfMatrix[0].round(4), transfMatrix[1].round(
+                4), transfMatrix[2].round(4), transfMatrix[3].round(4), transfMatrix[4].round(4), transfMatrix[5].round(4)]]), columns=header)
+            deviation = deviation.append(girderDeviation, ignore_index=True)
+
+        # torna os itens da coluna 'girder' nos índices do dataframe,
+        # necessário para usar as funções de cálculo aritimético entre dataframes
+        deviation = deviation.set_index('Girder')
+
+        # retorna o df com os termos no tipo numérico certo
+        return deviation.astype('float32')
+
+    ''' Função que será utilizada como entrada para scipy.minimize(), com objetivo de
+        calcular os parâmetros da transformação via quadrados mínimos entre dois conjuntos de pontos;
+        - A função retorna uma np.array com o quadrado da distância euclidiana entre pontos equivalentes;
+        - "params" são parâmetros da transformação que serão calculados no scipy.minimize();
+        - "args" é uma tupla com 3 objetos: (np.array de pontos medidos, np.array de pontos de referência, string definindo o modo)
+        - As np.array de pontos devem estar ordenadas da mesma maneira, e as colunas devem ser [x, y, z, Rx, Ry, Rz]
+        - A transformação pode ser calculada em três diferentes modos:
+            full:  transforma todos os graus de liberdade
+            level: transforma apenas Ty, Rx e Rz
+            plane: transforma apenas Tx, Tz e Ry '''
+    @staticmethod
+    def calculate_transformation(params, *args):
+
+        x0 = args[0]
+        x_ref = args[1]
+        dofs = args[2].copy()
+        dofs_backup = args[2]
+
+        x0 = np.array(x0)
+        x_ref = np.array(x_ref)
+
+        (Tx, Ty, Tz, Rx, Ry, Rz) = (0, 0, 0, 0, 0, 0)
+        # ** assume-se que os parametros estão ordenados
+        for param in params:
+            if 'Tx' in dofs:
+                Tx = param
+                dofs.pop(dofs.index('Tx'))
+            elif 'Ty' in dofs:
+                Ty = param
+                dofs.pop(dofs.index('Ty'))
+            elif 'Tz' in dofs:
+                Tz = param
+                dofs.pop(dofs.index('Tz'))
+            elif 'Rx' in dofs:
+                Rx = param
+                dofs.pop(dofs.index('Rx'))
+            elif 'Ry' in dofs:
+                Ry = param
+                dofs.pop(dofs.index('Ry'))
+            elif 'Rz' in dofs:
+                Rz = param
+                dofs.pop(dofs.index('Rz'))
+
+        # inicializando variável para cálculo do(s) valor a ser minimizado
+        diff = []
+
+        for i in range(np.shape(x0)[0]):
+
+            rot_z = np.array([[np.cos(Rz*10**-3), -np.sin(Rz*10**-3), 0],
+                              [np.sin(Rz*10**-3), np.cos(Rz*10**-3), 0], [0, 0, 1]])
+            rot_y = np.array([[np.cos(Ry*10**-3), 0, np.sin(Ry*10**-3)],
+                              [0, 1, 0], [-np.sin(Ry*10**-3), 0, np.cos(Ry*10**-3)]])
+            rot_x = np.array([[1, 0, 0], [0, np.cos(
+                Rx*10**-3), -np.sin(Rx*10**-3)], [0, np.sin(Rx*10**-3), np.cos(Rx*10**-3)]])
+            ROT = rot_z @ rot_y @ rot_x
+            xr = np.dot(ROT, x0[i])
+
+            xt = xr + np.array([Tx, Ty, Tz])
+
+            if 'Tx' in dofs_backup:
+                diff.append(((x_ref[i, 0]-xt[0])**2).sum())
+            if 'Ty' in dofs_backup:
+                diff.append(((x_ref[i, 1]-xt[1])**2).sum())
+            if 'Tz' in dofs_backup:
+                diff.append(((x_ref[i, 2]-xt[2])**2).sum())
+
+        return np.sqrt(np.sum(diff))

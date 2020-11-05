@@ -8,7 +8,7 @@ if __name__ == "__main__":
     lookuptable_MLtoLocal = DataOperator.loadFromExcel(
         "../data/input/frames_table_fullpre.xlsx", "Planilha4", has_header=True)
     rawPtsNominal = DataOperator.loadFromExcel(
-        "../data/input/SR_nominals.xlsx", "Planilha2", has_header=False)
+        "../data/input/SR_nominals_completo.xlsx", "Planilha2", has_header=False)
     rawPtsMeasured = DataOperator.loadFromExcel(
         "../data/input/SR_Magnets_Measured_rev2.xlsx", "Planilha1", has_header=False)
 
@@ -24,39 +24,41 @@ if __name__ == "__main__":
     girderNominal = GirderGroup(ptsNominal)
     girderMeasured = GirderGroup(ptsMeasured)
 
-    # calculando centroides
+    # computando os centroides
     girderNominal.computeCentroids()
     girderMeasured.computeCentroids()
 
-    # calculando entrada e saida
-    girderNominal.computeInOut()
-    girderMeasured.computeInOut()
-
-    # calculando desvios (pelo método antigo)
+    # calculando desvios dos centroides
     diffCentroids = GirderGroup.evalDiff_pointToPoint(
         girderNominal.centroids, girderMeasured.centroids)
-    diffInOut = GirderGroup.evalDiff_pointToPoint(
-        girderNominal.inOut, girderMeasured.inOut)
 
-    # calculando delta entre entrada e saída
-    deltaInOut = GirderGroup.calc_delta_inout(diffInOut)
+    print(diffCentroids)
 
-    # calculando angulos (pelo método antigo)
-    rotationalDeviations = GirderGroup.calculate_angles(ptsMeasured.ptList)
+    # calculando desvios angulares
+    diffRotational = GirderGroup.calculate_angles(girderMeasured)
 
-    # sessão de Plots
-    plot_args = {'y_list': ['x', 'z'],
-                 'title_list': ['horizontal', 'vertical']}
+    # calculando desvios de todos dof baseado no best-fit de todos os pontos
+    diffAllDoFs = GirderGroup.evalDiff_bestFit(
+        girderNominal.pointGroup.ptList, girderMeasured.pointGroup.ptList)
+
+    # salvando resultado em excel
+    # DataOperator.saveToExcel(
+    #     '../data/output/all-dofs-deviations.xlsx', diffAllDoFs)
+
+    # ----- plots -----
+
+    # rotações (ponto a ponto)
+    plot_args = {'y_list': ['Roll', 'Pitch', 'Yaw'],
+                 'title_list': ['Rx', 'Ry', 'Rz'], 'fig_title': 'Análise ponto a ponto'}
+    Plot.plotGirderDeviation(diffRotational, 'angle', plot_args)
+
+    # translações (ponto a ponto, centroides)
+    plot_args = {'y_list': ['x', 'y', 'z'],
+                 'title_list': ['Tx', 'Ty', 'Tz'], 'fig_title': 'Análise ponto a ponto'}
     Plot.plotGirderDeviation(diffCentroids, 'centroid', plot_args)
 
-    plot_args = {'y_list': ['x_in', 'y_in', 'z_in', 'x_out', 'y_out', 'z_out'], 'title_list': [
-        'horizontal', 'longitudinal', 'vertical', 'horizontal', 'longitudinal', 'vertical', ]}
-    Plot.plotGirderDeviation(diffInOut, 'inout', plot_args)
-
-    plot_args = {'y_list': ['Roll', 'Pitch'], 'title_list': ['Roll', 'Pitch']}
-    Plot.plotGirderDeviation(rotationalDeviations, 'angle', plot_args)
-
-    plot_args = {'y_list': ['delta_x', 'delta_y',
-                            'delta_z'], 'title_list': ['dX', 'dY', 'dZ']}
-    Plot.plotGirderDeviation(deltaInOut, 'inout_delta',
+    # translações e rotações (bestfit)
+    plot_args = {'y_list': ['Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz'], 'title_list': [
+        'Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz'], 'fig_title': 'Análise por Bestfit'}
+    Plot.plotGirderDeviation(diffAllDoFs, 'allDoFs',
                              plot_args, freezePlot=True)

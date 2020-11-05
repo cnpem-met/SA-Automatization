@@ -24,9 +24,10 @@ class DataOperator(object):
 
         return df_sorted
 
+    """ Método para salvar um dataset em uma planilha """
     @staticmethod
-    def saveToExcel(excel_file_dir, excel_sheet, data):
-        pass
+    def saveToExcel(excel_file_dir, data):
+        data.to_excel(excel_file_dir)
 
     """ Método para atualizar um dataframe que tenha dados obsoletos; a função funciona substituindo as
         linhas do df do 2o argumento (updated_parcial...) nas linhas correspondentes no df do 1o argumento """
