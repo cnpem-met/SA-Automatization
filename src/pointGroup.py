@@ -6,11 +6,11 @@ import math
 class PointGroup(object):
     """ Método construtor da classe """
 
-    def __init__(self, ptList, typeOfPoints, lookuptable, frame="machine-local"):
+    def __init__(self, ptList, typeOfPoints, lookuptable=None, frame="machine-local"):
         self.ptList = ptList
         self.frame = frame
         self.type = typeOfPoints
-        self.lookuptable = lookuptable
+        self.lookuptable = lookuptable or None
 
     """ Método que gera um dataframe com pontos em coordenadas locais (frames dos berços), a partir
     das coordenadas globais (frame ML) e dos parâmetros de transformação de coordenadas de cada frame """

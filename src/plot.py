@@ -42,7 +42,7 @@ class Plot(object):
         elif (analysis_type == 'allDoFs'):
             colum1_name = 'Tx'
             df_colums_dict = {
-                'Tx': 'dx [mm]', 'Ty': 'dy [mm]', 'Tz': 'dz [mm]', 'Rx': 'roll [mrad]', 'Ry': 'pitch [mrad]', 'Rz': 'yaw [mrad]'}
+                'Tx': 'd_transv (mm)', 'Ty': 'd_long (mm)', 'Tz': 'd_vert (mm)', 'Rx': 'd_pitch (mrad)', 'Ry': 'd_roll (mrad)', 'Rz': 'd_yaw (mrad)'}
 
         else:
             print("Falha no plot: tipo de análise não reconhecida.")

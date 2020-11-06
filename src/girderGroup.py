@@ -758,6 +758,9 @@ class GirderGroup(object):
                 transfMatrix = np.array(
                     [partial2[0], partial2[1], partial1[0], partial1[1], partial1[2], partial2[2]])
 
+            # invertendo o sinal do resultado p/ adequação
+            transfMatrix = [dof*(-1) for dof in transfMatrix]
+
             girderDeviation = pd.DataFrame(data=np.array([[currentGirder, transfMatrix[0].round(4), transfMatrix[1].round(
                 4), transfMatrix[2].round(4), transfMatrix[3].round(4), transfMatrix[4].round(4), transfMatrix[5].round(4)]]), columns=header)
             deviation = deviation.append(girderDeviation, ignore_index=True)
