@@ -2,6 +2,9 @@ from ui import Ui
 from PyQt5 import QtWidgets
 import sys
 
+from facModel import FacModel
+from dataOperator import DataOperator
+
 
 class App(QtWidgets.QApplication):
     def __init__(self):
@@ -23,9 +26,9 @@ if __name__ == "__main__":
 
 """ 
 PENDÊNCIAS
-- correção nomenclatura
-- correção sinal bestgit
-- padronização do título e eixos
+- /feito/ correção nomenclatura
+- /feito/ correção sinal bestgit
+- /feito/padronização do título e eixos
 - plot de tolerancias (especificá-las)
 - [modelo liu - long.] avaliação de distancias entre dipolos e quadrupolos 
 - [modelo liu - vert.] avaliação individual de cada quadrupolo e dipolo

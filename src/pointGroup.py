@@ -10,7 +10,7 @@ class PointGroup(object):
         self.ptList = ptList
         self.frame = frame
         self.type = typeOfPoints
-        self.lookuptable = lookuptable or None
+        self.lookuptable = lookuptable
 
     """ Método que gera um dataframe com pontos em coordenadas locais (frames dos berços), a partir
     das coordenadas globais (frame ML) e dos parâmetros de transformação de coordenadas de cada frame """
@@ -23,6 +23,7 @@ class PointGroup(object):
         lookup_temp = self.lookuptable.copy()
 
         old_girder = ""
+
         for i in range(pts_new.iloc[:, 0].size):
             current_girder = pts_new.index[i][:7]
             if (current_girder != old_girder):
@@ -36,34 +37,8 @@ class PointGroup(object):
 
                 ref_girder = lookup_temp.index[0]
 
-                # tratativa da exceção dos berços B03 e B11, os quais devem ter suas coordenadas locais calculadas
-                # a partir de parâmetros da matriz de transformação do berço anterior e sucessor, respectivamente
-                if (current_girder[4:] == 'B03'):
-                    # pega os parâmetros de rotação do berço anterior
-                    transf_matrix = [lookup_temp.at[ref_girder, 'Tx'], lookup_temp.at[ref_girder, 'Ty'], lookup_temp.at[ref_girder, 'Tz'],
-                                     transf_matrix_B02[3], transf_matrix_B02[4], transf_matrix_B02[5]]
-                elif (current_girder[4:] == 'B11'):
-                    # pega os parâmetros de rotação do berço sucessor
-                    if (current_girder == 'S20-B11'):
-                        # nesse caso em específico, o sucessor é o S01-B01
-                        transf_matrix = [lookup_temp.at[ref_girder, 'Tx'], lookup_temp.at[ref_girder, 'Ty'], lookup_temp.at[ref_girder, 'Tz'],
-                                         transf_matrix_S01B01[3], transf_matrix_S01B01[4], transf_matrix_S01B01[5]]
-                    else:
-                        # no resto dos casos, o sucessor é o próximo da lookup_table
-                        transf_matrix = [lookup_temp.at[ref_girder, 'Tx'], lookup_temp.at[ref_girder, 'Ty'], lookup_temp.at[ref_girder, 'Tz'],
-                                         lookup_temp.at[lookup_temp.index[1], 'Rx'], lookup_temp.at[lookup_temp.index[1], 'Ry'], lookup_temp.at[lookup_temp.index[1], 'Rz']]
-                else:
-                    # caso sem exceção, ou seja, todos os parâmetros de transformação de frame são do próprio berço
-                    transf_matrix = [lookup_temp.at[ref_girder, 'Tx'], lookup_temp.at[ref_girder, 'Ty'], lookup_temp.at[ref_girder, 'Tz'],
-                                     lookup_temp.at[ref_girder, 'Rx'], lookup_temp.at[ref_girder, 'Ry'], lookup_temp.at[ref_girder, 'Rz']]
-
-                # salvando a matriz de transformação dos berços B02, pois serão usados p/ calculo de B03 na próxima iteração
-                if (current_girder[4:] == 'B02'):
-                    transf_matrix_B02 = transf_matrix
-
-                # salvando a matriz de transf. do primeiro berço (S01-B01), para ser usado no cálculo do S20-B11
-                if (current_girder == 'S01-B01'):
-                    transf_matrix_S01B01 = transf_matrix
+                transf_matrix = [lookup_temp.at[ref_girder, 'Tx'], lookup_temp.at[ref_girder, 'Ty'], lookup_temp.at[ref_girder,
+                                                                                                                    'Tz'], lookup_temp.at[ref_girder, 'Rx'], lookup_temp.at[ref_girder, 'Ry'], lookup_temp.at[ref_girder, 'Rz']]
 
                 # tirando da lista de parâm. de transf. a linha do berço que já foi usada
                 lookup_temp = lookup_temp.drop(lookup_temp.index[0])
@@ -78,26 +53,31 @@ class PointGroup(object):
                 [[pts_new.iloc[i, 0]], [pts_new.iloc[i, 1]], [pts_new.iloc[i, 2]]])
 
             if (convers_type == 'direct'):
+
                 # apluicando translação
                 p_trans = self.translate(
                     p, transf_matrix[0], transf_matrix[1], transf_matrix[2], convers_type)
                 # aplicando rotação
                 p_final = self.rotate(
                     p_trans, transf_matrix[3], transf_matrix[4], transf_matrix[5], convers_type)
+
+                # atualizando propriedade 'frame' do objeto
+                self.frame = "local"
             else:
+
                 p_rot = self.rotate(
                     p, transf_matrix[3], transf_matrix[4], transf_matrix[5], convers_type)
                 p_final = self.translate(
                     p_rot, transf_matrix[0], transf_matrix[1], transf_matrix[2], convers_type)
 
+                # atualizando propriedade 'frame' do objeto
+                self.frame = "machine-local"
+
             # salvando a coordenada do ponto em frame local no Dataframe pts_new
-            pts_new.iloc[i, 0:] = [p_final[0, 0], p_final[1, 0], p_final[2, 0]]
+            pts_new.iloc[i, :3] = [p_final[0, 0], p_final[1, 0], p_final[2, 0]]
 
             # atualizando a referencia para o ultimo berço
             old_girder = current_girder
-
-        # atualizando propriedade 'frame' do objeto
-        self.frame = "local"
 
         # atualiza lista de pontos do objeto
         self.ptList = pts_new

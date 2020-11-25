@@ -20,6 +20,8 @@ class Plot(object):
         # pegando uma cópia do df original
         results_df = results_df.copy()
 
+        xAxisTitle = 'Girder'
+
         # verificando qual o tipo de plot que será, e associando
         # parâmetros específicos a eles
         if (analysis_type == "centroid"):
@@ -43,6 +45,12 @@ class Plot(object):
             colum1_name = 'Tx'
             df_colums_dict = {
                 'Tx': 'd_transv (mm)', 'Ty': 'd_long (mm)', 'Tz': 'd_vert (mm)', 'Rx': 'd_pitch (mrad)', 'Ry': 'd_roll (mrad)', 'Rz': 'd_yaw (mrad)'}
+            xAxisTicks = []
+            for i in range(0, 220):
+                sector = int(i/11) + 1
+                xAxisTicks.append(str(sector))
+
+            # xAxisTitle = "Sector"
 
         else:
             print("Falha no plot: tipo de análise não reconhecida.")
@@ -51,11 +59,22 @@ class Plot(object):
         """ configurando df """
         new_index = np.linspace(
             0, results_df[colum1_name].size-1, results_df[colum1_name].size)
+
         results_df['Index'] = new_index
         results_df.insert(0, 'Girder', results_df.index)
         results_df.set_index('Index', drop=True, inplace=True)
         results_df.reset_index(drop=True, inplace=True)
         results_df.rename(columns=df_colums_dict, inplace=True)
+
+        # mudança das marcas do eixo (avaliar se é pra todos os casos de plot mesmo)
+        # if (True):
+        #     results_df['Girder'] = xAxisTicks
+
+        #     results_df.columns = [xAxisTitle, "d_transv (mm)",  "d_long (mm)",
+        #                           "d_vert (mm)",  "d_pitch (mrad)",  "d_roll (mrad)",  "d_yaw (mrad)"]
+
+        # invertendo sinal das translações transversais
+        results_df["d_transv (mm)"] = -results_df["d_transv (mm)"]
 
         """ configurando parâmetros do plot """
         # configurando plot de acordo com o número de variáveis que foi passado,
@@ -106,7 +125,7 @@ class Plot(object):
 
         for i in range(len(y_list)):
             results_df.plot.scatter(
-                'Girder', y_list[i], c=plot_colors[i], ax=axs_new[i % 3][int(i/3)], title=plot_titles[i])
+                xAxisTitle, y_list[i], c=plot_colors[i], ax=axs_new[i % 3][int(i/3)], title=plot_titles[i])
         for i in range(len(y_list)):
             axs_new[i % 3][int(i/3)].tick_params(axis='x', which='major', direction='in', bottom=True, top=True, labelrotation=45,
                                                  labelsize='small')

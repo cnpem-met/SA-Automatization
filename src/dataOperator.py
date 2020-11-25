@@ -22,6 +22,38 @@ class DataOperator(object):
         df_sorted.reset_index(drop=True, inplace=True)
         df_sorted = df_sorted.set_index(key_column)
 
+        # reordenando dataframe conforme ordem dos imãs *
+        # *especialmente para o cálculo das distâncias entre os imãs
+        # ** tratamento necessário apenas para o caso do berço 3
+        newIndexList = []
+        i = 0
+        while i < len(df_sorted.index):
+            index = df_sorted.index[i]
+            if (index[4:7] == 'B03'):
+                dipole = []
+                isGirderB03 = True
+                j = i
+                while isGirderB03:
+                    currentIndex = df_sorted.index[j]
+                    nextIndex = df_sorted.index[j+1]
+                    if (currentIndex[8:12] != 'QUAD' and currentIndex[8:12] != 'SEXT'):
+                        dipole.append(currentIndex)
+                    else:
+                        newIndexList.append(currentIndex)
+
+                    if (nextIndex[4:7] != 'B03'):
+                        isGirderB03 = False
+                        [newIndexList.append(dipolePoint)
+                         for dipolePoint in dipole]
+                    else:
+                        j += 1
+                i = j
+            else:
+                newIndexList.append(index)
+            i += 1
+
+        df_sorted = df_sorted.reindex(newIndexList)
+
         return df_sorted
 
     """ Método para salvar um dataset em uma planilha """

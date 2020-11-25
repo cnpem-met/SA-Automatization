@@ -1,6 +1,7 @@
 from pointGroup import PointGroup
 from girderGroup import GirderGroup
 from dataOperator import DataOperator
+from facModel import FacModel
 
 from plot import Plot
 
@@ -59,6 +60,17 @@ class Ui(QtWidgets.QMainWindow):
 
         # buttons
         self.btnPlotAbsolute.clicked.connect(self.plotAbsolute)
+        self.expMachModel.clicked.connect(self.exportMachineModel)
+
+    def exportMachineModel(self):
+        fac = FacModel(self.girderMeasured, self.girderNominal)
+        distMeas = fac.generateLongitudinalDistances('measured')
+        distNom = fac.generateLongitudinalDistances('nominal')
+
+        DataOperator.saveToExcel(
+            "../data/output/distances-measured.xlsx", distMeas)
+        DataOperator.saveToExcel(
+            "../data/output/distances-nominal.xlsx", distNom)
 
     def logMessage(self, message):
         self.logbook.append(message)
@@ -183,16 +195,19 @@ class Ui(QtWidgets.QMainWindow):
         # operação sobre pontos carregados
         self.transformPointsToLocalFrame()
         self.generateGirderObjects()
-        self.computeCentroids()
+        # self.computeCentroids()
 
         # habilita botões de plot
         self.btnPlotAbsolute.setEnabled(True)
         self.btnExpAbsolute.setEnabled(True)
+        self.expMachModel.setEnabled(True)
 
     def transformPointsToLocalFrame(self):
         # transformando para frame local
         self.ptsNominal.transformToLocalFrame()
         self.ptsMeasured.transformToLocalFrame()
+
+        # print(self.ptsNominal.ptList[:50])
 
     def generateGirderObjects(self):
         # gerando grupos de berços
