@@ -2,7 +2,10 @@ ignore/
 
 data/output/
 data/análise/
+data/input/old
+
 
 .vscode/
 src/.vscode/
 src/__pycache__
+src/old/
