@@ -58,6 +58,7 @@ class Magnet(object):
         self.transfMatrix = transfMatrix
         self.deviation = {'Tx': 0, 'Ty': 0, 'Tz': 0, 'Rx': 0, 'Ry': 0, 'Rz': 0}
         self.type = type
+        self.shift = 0
 
     def transformFrame(self, frameTo="magnet"):
 
@@ -82,8 +83,9 @@ class Magnet(object):
 
 
 class Girder(object):
-    def __init__(self, name):
+    def __init__(self, name, girderType):
         self.name = name
+        self.type = girderType
         self.magnetList = {}
 
 
@@ -108,6 +110,25 @@ class DataUtils():
                                       'Tz': dof['Tz'], 'Rx': dof['Rx'], 'Ry': dof['Ry'], 'Rz': dof['Rz']}
 
         return lookupTable
+
+    @staticmethod
+    def reorderList(girderDict):
+        for girderName in girderDict:
+            girder = girderDict[girderName]
+            if (girder.type == 'B1' and girderName[-3:] == 'B03'):
+                magnetList = girderDict[girderName].magnetList
+
+                orderedList = []
+                newMagnetDict = {}
+
+                for magnetName in magnetList:
+                    magnet = magnetList[magnetName]
+                    orderedList.insert(0, (magnetName, magnet))
+
+                for item in orderedList:
+                    newMagnetDict[item[0]] = item[1]
+
+                girderDict[girderName].magnetList = newMagnetDict
 
     @staticmethod
     def createObjectsStructure(lookupTable, pointsDF):
@@ -147,7 +168,8 @@ class DataUtils():
             if (girderName in girderList):
                 girder = girderList[girderName]
             else:
-                girder = Girder(girderName)
+                girderType = GenericUtils.checkGirderType(girderName)
+                girder = Girder(girderName, girderType)
                 girderList[girderName] = girder
 
             # finding Magnet object or instantiating a new one
@@ -171,6 +193,8 @@ class DataUtils():
 
                 # including on data structure
                 girderList[girderName].magnetList[magnetName] = magnet
+
+        DataUtils.reorderList(girderList)
 
         return girderList
 
@@ -366,7 +390,7 @@ class DataUtils():
         return np.sqrt(np.sum(diff))
 
     @staticmethod
-    def calculateGirderToGirderDeviation(girderDictMeas, girderDictNom):
+    def calculateGirderToGirderDeviation(shiftsB1, girderDictMeas, girderDictNom):
 
         header = ['Magnet', 'Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz']
 
@@ -438,6 +462,9 @@ class DataUtils():
                 magnet.deviation = {'Tx': transformation[0], 'Ty': transformation[1], 'Tz': transformation[2],
                                     'Rx': transformation[3], 'Ry': transformation[4], 'Rz': transformation[5]}
 
+                if (magnet.type == 'dipole-B1'):
+                    magnet.shift = shiftsB1[magnetName]
+
         deviation = pd.concat(deviationList, ignore_index=True)
 
         deviation = deviation.set_index(header[0])
@@ -475,7 +502,9 @@ class GenericUtils():
             for magnet in magnetList:
                 pointList = magnetList[magnet].pointList
                 transfMatrix = magnetList[magnet].transfMatrix
+                shift = magnetList[magnet].shift
                 print('\t\t', magnet)
+                print('\t\t\tshift: ', shift)
                 print('\t\t\ttransfMatrix: ', transfMatrix)
                 print('\t\t\tpointlist: ')
                 for point in pointList:
@@ -557,7 +586,7 @@ class FacModel():
                 yList.append(point.y)
                 zList.append(point.z)
 
-        coordinates = [0, 0, 0]
+        coordinates = [None, None, None]
 
         if (magnet.type == 'quadrupole'):
             coordinates = [
@@ -570,13 +599,15 @@ class FacModel():
                 shiftZ = -228.5
                 if (dipoleType == 'B1'):
                     dist = 62.522039008
+                    # applying magnet's specific shift to compensate manufacturing variation
+                    dist += magnet.shift
                 elif (dipoleType == 'B2'):
                     dist = 56.0719937133
                 else:
                     dist = - 61.7029799998
                     shiftZ = -351.5
 
-                Rz = magnet.deviation['Rz']
+                Rz = magnet.deviation['Rz'] * 10**-3
 
                 shiftX = math.cos(Rz) * dist
                 shiftY = - math.sin(Rz) * dist
@@ -607,11 +638,15 @@ class FacModel():
                 tm = {'Tx': -tm['Tx'], 'Ty': -tm['Ty'], 'Tz': -tm['Tz'],
                       'Rx': -tm['Rx'], 'Ry': -tm['Ry'], 'Rz': -tm['Rz']}
 
-                point.transform(tm, 'machine-local', 'indirect')
+                try:
+                    point.transform(tm, 'machine-local', 'indirect')
 
-                row = pd.DataFrame(
-                    [[point.name, point.x, point.y, point.z]], columns=header)
-                pointDFList.append(row)
+                    row = pd.DataFrame(
+                        [[point.name, point.x, point.y, point.z]], columns=header)
+                    pointDFList.append(row)
+                except TypeError:
+                    # caso do sextupolo
+                    pass
 
         pointDF = pd.concat(pointDFList, ignore_index=True)
         pointDF = pointDF.set_index(header[0])
@@ -626,6 +661,8 @@ class App():
         self.nominals = None
         self.girderDictMeas = None
         self.girderDictNom = None
+
+        self.shiftsB1 = None
 
         self.runInDevMode()
 
@@ -649,31 +686,38 @@ class App():
         self.readMeasuredFile(config['ptsMeasFileName'])
         self.readLookuptableFile(config['lookupFileName'])
 
+        self.shiftsB1 = config['shiftsB1']
+
     def runInDevMode(self):
         self.loadEnv()
 
         lookupDict = DataUtils.createLookupDict(self.lookupTable)
 
-        self.girderDictMeas = DataUtils.createObjectsStructure(
-            lookupDict, self.measured)
-
         self.girderDictNom = DataUtils.createObjectsStructure(
             lookupDict, self.nominals)
+
+        self.girderDictMeas = DataUtils.createObjectsStructure(
+            lookupDict, self.measured)
 
         DataUtils.transformToLocalFrame(self.girderDictMeas)
         DataUtils.transformToLocalFrame(self.girderDictNom)
 
         girdersDeviation = DataUtils.calculateGirderToGirderDeviation(
-            self.girderDictMeas, self.girderDictNom)
+            self.shiftsB1, self.girderDictMeas, self.girderDictNom)
 
-        DataUtils.plotDevitationData(girdersDeviation)
+        GenericUtils.printDictData(self.girderDictMeas)
+
+        # DataUtils.plotDevitationData(girdersDeviation)
 
         # distancesNom = FacModel.generateLongitudinalDistances(
         #     self.girderDictNom)
 
+        # distancesMeas = FacModel.generateLongitudinalDistances(
+        #     self.girderDictMeas)
+
         # print(distancesNom.head(40))
+        # print(distancesMeas.head(40))
 
 
 if __name__ == "__main__":
     App()
-
