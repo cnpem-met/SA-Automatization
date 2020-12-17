@@ -33,14 +33,12 @@ class Frame(object):
 
     @staticmethod
     def changeFrame(frameFrom, frameTo, pointDict, frameDict):
-        (transformation, isTransformOk) = Transformation.evaluateTransformation(
+        transformation = Transformation.evaluateTransformation(
             frameDict, frameFrom, frameTo)
 
         # checking if the transformation's calculation went ok
-        if (not isTransformOk):
-            return (None, False)
-
-        points = []
+        # if (not isTransformOk):
+        #     return True
 
         # iterating over magnet's points and transforming then to the new frame
         for pointName in pointDict:
@@ -78,24 +76,18 @@ class Transformation(object):
         self.transfMatrix[3, 3] = 1
         self.transfMatrix[:3, 3] = [self.Tx, self.Ty, self.Tz]
 
-        # self.transfMatrix = inv(self.transfMatrix)
-
     @staticmethod
     def evaluateTransformation(frameDict, initialFrame, targetFrame):
         transformationList = []
         transformationList.insert(
             0, frameDict[initialFrame].transformation.transfMatrix)
 
-        try:
-            transformationList.insert(
-                0, inv(frameDict[targetFrame].transformation.transfMatrix))
-        except KeyError:
-            # target frame not found
-            return (None, False)
+        transformationList.insert(
+            0, inv(frameDict[targetFrame].transformation.transfMatrix))
 
         transformation = transformationList[0] @ transformationList[1]
 
-        return (transformation, True)
+        return transformation
 
     @staticmethod
     def individualDeviationsFromHomogMatrix(transfMatrix):
@@ -114,7 +106,7 @@ class Transformation(object):
         pt = [[p1t.x, p1t.y, p1t.z], [p2t.x, p2t.y, p2t.z], [p3t.x, p3t.y, p3t.z]]
 
         dofs = ['Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz']
-        deviation = Analysis.evaluateDeviation(
+        deviation = DataUtils.evaluateDeviation(
             pt, p, dofs)
 
         return deviation
@@ -148,17 +140,12 @@ class Magnet(object):
             initialFrame = self.pointDict[point].frameName
             break
 
-        (transformation, isTransformOk) = Transformation.evaluateTransformation(
+        transformation = Transformation.evaluateTransformation(
             frameDict, initialFrame, targetFrame)
 
-        if (isTransformOk):
-            # iterate over points and transform then
-            for point in self.pointDict:
-                self.pointDict[point].transform(transformation, targetFrame)
-        else:
-            print(
-                "Target frame not computed. Not applying transformation on points of magnet " + self.name)
-            return
+        # iterate over points and transform then
+        for point in self.pointDict:
+            self.pointDict[point].transform(transformation, targetFrame)
 
     def addPoint(self, point):
         self.pointDict[point.name] = point
@@ -190,70 +177,6 @@ class DataUtils():
             frameDict[newFrameName] = frame
 
         return frameDict
-
-    @staticmethod
-    def createObjectsStructure(pointsDF, isMeasured=False, shiftsB1=None):
-
-        girderDict = {}
-
-        # iterate over dataframe
-        for pointName, coordinate in pointsDF.iterrows():
-            splitedPointName = pointName.split('-')
-
-            girderName = splitedPointName[0] + '-' + splitedPointName[1]
-
-            girderType = DataUtils.checkGirderType(girderName)
-
-            # default magnet's name (most cases)
-            magnetName = girderName + '-' + splitedPointName[2]
-
-            # checking exceptions
-            if (girderType == "B1"):
-                try:
-                    if (splitedPointName[3][:2] == "B1"):
-                        magnetName = girderName + "-B1"
-                except IndexError:
-                    if (splitedPointName[2] == "CENTER"):
-                        magnetName = girderName + "-B1"
-
-            elif (girderType == "B2"):
-                magnetName = girderName + "-B2"
-            elif (girderType == "BC"):
-                magnetName = girderName + "-BC"
-
-            # instantiating a Point object
-            point = Point(
-                pointName, coordinate['x'], coordinate['y'], coordinate['z'], 'machine-local')
-
-            # finding Girder object or instantiating a new one
-            if (girderName in girderDict):
-                girder = girderDict[girderName]
-            else:
-                girderType = DataUtils.checkGirderType(girderName)
-                girder = Girder(girderName, girderType)
-                girderDict[girderName] = girder
-
-            # finding Magnet object or instantiating a new one
-            if (magnetName in girder.magnetDict):
-                # reference to the Magnet object
-                magnet = girder.magnetDict[magnetName]
-                # append point into its point list
-                magnet.addPoint(point)
-            else:
-                magnetType = DataUtils.checkMagnetType(magnetName)
-
-                # instantiate new Magnet object
-                magnet = Magnet(magnetName, magnetType)
-                magnet.addPoint(point)
-                if (isMeasured and magnetType == 'dipole-B1'):
-                    magnet.shift = shiftsB1[magnetName]
-
-                # including on data structure
-                girderDict[girderName].magnetDict[magnetName] = magnet
-
-        DataUtils.reorderDict(girderDict)
-
-        return girderDict
 
     @staticmethod
     def readExcel(fileDir, dataType, sheetName=0):
@@ -290,6 +213,10 @@ class DataUtils():
         # reading csv file with automatic detection of its delimeter
         data = pd.read_csv(fileDir, sep=None, engine='python', names=header)
 
+        # checking if it has a bult-in header and droping it
+        if (type(data.iloc[0, 1]) is str):
+            data = data.drop([0])
+
         # sorting and indexing df
         data = data.sort_values(by=header[0])
         data.reset_index(drop=True, inplace=True)
@@ -307,7 +234,7 @@ class DataUtils():
         plotData = deviations.copy()
 
         plot_args = {'y_list': ['Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz'], 'title_list': [
-            'Transversal', 'Longitudinal', 'Vertical', 'Pitch', 'Roll', 'Yaw'], 'fig_title': 'Global Alignment Profile - Storage Ring'}
+            'Transversal', 'Longitudinal', 'Vertical', 'Pitch', 'Roll', 'Yaw'], 'fig_title': 'Global Alignment Profile - Booster'}
 
         xAxisTitle = 'Magnet'
 
@@ -392,13 +319,29 @@ class DataUtils():
         plt.show()
 
     @staticmethod
-    def transformToLocalFrame(girderDict, frameDict):
-        for girderName in girderDict:
-            magnetDict = girderDict[girderName].magnetDict
+    def transformToLocalFrame(objectDict, frameDict, accelerator):
+        magnetsNotComputed = ""
+        for objectName in objectDict:
+            if (accelerator == 'SR'):
+                magnetDict = objectDict[objectName].magnetDict
+            else:
+                magnetDict = objectDict[objectName]
             for magnetName in magnetDict:
                 magnet = magnetDict[magnetName]
                 targetFrame = magnetName + "-NOMINAL"
-                magnet.transformFrame(frameDict, targetFrame)
+
+                # error = magnet.transformFrame(frameDict, targetFrame)
+                # if(error):
+                #     magnetsNotComputed += magnet.name + ','
+                try:
+                    magnet.transformFrame(frameDict, targetFrame)
+                except KeyError:
+                    magnetsNotComputed += magnet.name + ','
+
+        # at least one frame was not computed
+        if (magnetsNotComputed != ""):
+            print("[Transformação p/ frames locais] Imãs não computados: " +
+                  magnetsNotComputed[:-1])
 
     @staticmethod
     def transformToMachineLocal(girderDict, frameDict):
@@ -409,37 +352,29 @@ class DataUtils():
                 magnet.transformFrame(frameDict, "machine-local")
 
     @staticmethod
-    def printDictData(girderDict, mode='console'):  # precisa adaptação pra booster
-        if (mode == 'console'):
-            for girder in girderDict:
-                print(girder)
-                magnetDict = girderDict[girder].magnetDict
-                for magnet in magnetDict:
-                    pointDict = magnetDict[magnet].pointDict
-                    shift = magnetDict[magnet].shift
-                    print('\t', magnet)
-                    print('\t\tshift: ', shift)
-                    print('\t\tpointlist: ')
-                    for point in pointDict:
-                        pt = pointDict[point]
-                        print('\t\t\t', pt.name, pt.x, pt.y, pt.z)
-        else:
-            output = ""
-            for girder in girderDict:
-                output += girder + '\n'
-                magnetDict = girderDict[girder].magnetDict
-                for magnet in magnetDict:
-                    pointDict = magnetDict[magnet].pointDict
-                    shift = magnetDict[magnet].shift
-                    output += '\t'+magnet+'\n'
-                    output += '\t\tshift: '+str(shift)+'\n'
-                    output += '\t\t\tpointlist:\n'
-                    for point in pointDict:
-                        pt = pointDict[point]
-                        output += '\t\t\t\t' + pt.name + ' ' + \
-                            str(pt.x) + ' ' + str(pt.y) + \
-                            ' ' + str(pt.z) + '\n'
+    def printDictData(objectDict, accelerator, mode='console'):
+        output = ""
+        for objectName in objectDict:
+            output += objectName + '\n'
+            if (accelerator == 'SR'):
+                magnetDict = objectDict[objectName].magnetDict
+            elif (accelerator == 'booster'):
+                magnetDict = objectDict[objectName]
+            for magnet in magnetDict:
+                pointDict = magnetDict[magnet].pointDict
+                shift = magnetDict[magnet].shift
+                output += '\t'+magnet+'\n'
+                output += '\t\tshift: '+str(shift)+'\n'
+                output += '\t\t\tpointlist:\n'
+                for point in pointDict:
+                    pt = pointDict[point]
+                    output += '\t\t\t\t' + pt.name + ' ' + \
+                        str(pt.x) + ' ' + str(pt.y) + \
+                        ' ' + str(pt.z) + '\n'
 
+        if (mode == 'console'):
+            print(output)
+        else:
             with open('../data/output/dataDict.txt', 'w') as f:
                 f.write(output)
 
@@ -462,21 +397,26 @@ class DataUtils():
             if ('NOMINAL' in frame.name or frame.name == 'machine-local'):
                 continue
 
+            magnetName = ""
             splitedFrameName = frame.name.split('-')
+            for i in range(len(splitedFrameName) - 1):
+                magnetName += (splitedFrameName[i]+'-')
 
-            magnetName = splitedFrameName[0] + '-' + \
-                splitedFrameName[1] + '-' + splitedFrameName[2]
-
-            frameFrom = magnetName + '-NOMINAL'
+            frameFrom = magnetName + 'NOMINAL'
             frameTo = frame.name
 
-            (transformation, isTransformOk) = Transformation.evaluateTransformation(
-                frameDict, frameFrom, frameTo)
+            try:
+                transformation = Transformation.evaluateTransformation(
+                    frameDict, frameFrom, frameTo)
+            except KeyError:
+                print("[Cálculo dos desvios] Desvio do imã " +
+                      magnetName[:-1] + "não calculado.")
+                continue
 
             dev = Transformation.individualDeviationsFromEquations(
                 transformation)
 
-            dev.insert(0, magnetName)
+            dev.insert(0, magnetName[:-1])
 
             deviation = pd.DataFrame([dev], columns=header)
             deviationList.append(deviation)
@@ -488,205 +428,36 @@ class DataUtils():
         return deviations.astype('float32')
 
     @staticmethod
-    # precisa de adaptação pra booster
-    def sortFrameDictByBeamTrajectory(frameDict):
+    # FALTA ADAPTAÇÃO PARA O BOOSTER
+    def sortFrameDictByBeamTrajectory(frameDict, accelerator="SR"):
         # sorting in alphabetical order
         keySortedList = sorted(frameDict)
         sortedFrameDict = {}
         for key in keySortedList:
             sortedFrameDict[key] = frameDict[key]
 
-        finalFrameDict = {}
-        b1FrameList = []
-        # correcting the case of S0xB03
-        for frameName in sortedFrameDict:
-            frame = sortedFrameDict[frameName]
+        if(accelerator == 'SR'):
+            finalFrameDict = {}
+            b1FrameList = []
+            # correcting the case of S0xB03
+            for frameName in sortedFrameDict:
+                frame = sortedFrameDict[frameName]
 
-            if ('B03-B1' in frame.name):
-                b1FrameList.append(frame)
-                continue
+                if ('B03-B1' in frame.name):
+                    b1FrameList.append(frame)
+                    continue
 
-            finalFrameDict[frame.name] = frame
+                finalFrameDict[frame.name] = frame
 
-            if ('B03-QUAD01-NOMINAL' in frame.name):
-                for b1Frame in b1FrameList:
-                    finalFrameDict[b1Frame.name] = b1Frame
-                b1FrameList = []
+                if ('B03-QUAD01-NOMINAL' in frame.name):
+                    for b1Frame in b1FrameList:
+                        finalFrameDict[b1Frame.name] = b1Frame
+                    b1FrameList = []
+        else:
+            # incluir exceções do booster aqui
+            finalFrameDict = sortedFrameDict
 
         return finalFrameDict
-
-    @staticmethod
-    def reorderDict(girderDict):
-        for girderName in girderDict:
-            girder = girderDict[girderName]
-            if (girder.type == 'B1' and girderName[-3:] == 'B03'):
-                magnetDict = girderDict[girderName].magnetDict
-
-                orderedList = []
-                newMagnetDict = {}
-
-                for magnetName in magnetDict:
-                    magnet = magnetDict[magnetName]
-                    orderedList.insert(0, (magnetName, magnet))
-
-                for item in orderedList:
-                    newMagnetDict[item[0]] = item[1]
-
-                girderDict[girderName].magnetDict = newMagnetDict
-
-    @staticmethod
-    def checkGirderType(girderName):
-        if (girderName[4:] == 'B03' or girderName[4:] == 'B11'):
-            girderType = 'B1'
-        elif (girderName[4:] == 'B05' or girderName[4:] == 'B09'):
-            girderType = 'B2'
-        elif (girderName[4:] == 'B07'):
-            girderType = 'BC'
-        else:
-            girderType = 'multi'
-        return girderType
-
-    @staticmethod
-    def checkMagnetType(magnetName):
-        magnet = magnetName.split('-')[2]
-        if (magnet[:4] == 'QUAD'):
-            magnetType = 'quadrupole'
-        elif (magnet == 'B1'):
-            magnetType = 'dipole-B1'
-        elif (magnet == 'B2'):
-            magnetType = 'dipole-B2'
-        elif (magnet == 'BC'):
-            magnetType = 'dipole-BC'
-        else:
-            magnetType = 'sextupole'
-
-        return magnetType
-
-
-class Analysis():
-    @staticmethod
-    def calculateLongitudinalDistances(points):
-
-        distancesList = []
-        header = ['Reference', 'Distance']
-        for i in range(points.iloc[:, 0].size):
-            point1 = points.iloc[i, :]
-            point1Name = points.index[i]
-
-            if (i+1 >= points.iloc[:, 0].size):
-                point2 = firstPoint
-                point2Name = firstPointName
-            else:
-                point2 = points.iloc[i+1, :]
-                point2Name = points.index[i+1]
-
-            vector = point2 - point1
-
-            distance = math.sqrt(
-                vector[0]**2 + vector[1]**2)
-
-            distance = round(distance, 4)
-
-            distName = point1Name + ' x ' + point2Name
-
-            if (i == 0):
-                firstPoint = point1
-                firstPointName = point1Name
-
-            distanceDF = pd.DataFrame([[distName, distance]], columns=header)
-            distancesList.append(distanceDF)
-
-        distances = pd.concat(distancesList, ignore_index=True)
-        distances = distances.set_index(header[0])
-
-        # retorna o df com os termos no tipo numérico certo
-        return distances.astype('float32')
-
-    @staticmethod
-    def calculateLongitudinalPoint(magnet):
-        xList, yList, zList = [], [], []
-
-        # coletando os pontos do imã, diferenciando graus de liberdade no caso do B2
-        for pointName in magnet.pointDict:
-            point = magnet.pointDict[pointName]
-            if (magnet.type == 'dipole-B2'):
-                # tratamento especial, considerando pontos de nivel e vert/transv
-                if (point.name[-4:-2] == 'LV'):
-                    zList.append(point.z)
-                else:
-                    xList.append(point.x)
-                    yList.append(point.y)
-            else:
-                xList.append(point.x)
-                yList.append(point.y)
-                zList.append(point.z)
-
-        coordinates = [None, None, None]
-
-        if (magnet.type == 'quadrupole'):
-            coordinates = [
-                np.mean(xList), np.mean(yList), np.mean(zList)]
-        else:
-            if (magnet.type != 'sextupole'):
-                midpoint = [np.mean(xList), np.mean(yList), np.mean(zList)]
-                dipoleType = magnet.type[-2:]
-
-                shiftZ = -228.5
-                if (dipoleType == 'B1'):
-                    dist = 62.522039008
-                    # applying magnet's specific shift to compensate manufacturing variation
-                    dist += magnet.shift
-                elif (dipoleType == 'B2'):
-                    dist = 56.0719937133
-                else:
-                    dist = - 61.7029799998
-                    shiftZ = -351.5
-
-                Rz = magnet.deviation['Rz'] * 10**-3
-
-                shiftX = math.cos(Rz) * dist
-                shiftY = - math.sin(Rz) * dist
-
-                # aplicando shift e assim definindo o ponto
-                coordinates = [midpoint[0] + shiftX,
-                               midpoint[1] + shiftY, midpoint[2] + shiftZ]
-
-        point = Point(
-            magnet.name, coordinates[0], coordinates[1], coordinates[2], magnet.name)
-
-        return point
-
-    @staticmethod
-    def generateLongitudinalDistances(girderDict):
-        pointDFList = []
-
-        header = ['point-name', 'x', 'y', 'z']
-
-        for girderName in girderDict:
-            magnetDict = girderDict[girderName].magnetDict
-            for magnetName in magnetDict:
-                magnet = magnetDict[magnetName]
-
-                point = Analysis.calculateLongitudinalPoint(magnet)
-
-                tm = magnet.transfMatrix
-                tm = {'Tx': -tm['Tx'], 'Ty': -tm['Ty'], 'Tz': -tm['Tz'],
-                      'Rx': -tm['Rx'], 'Ry': -tm['Ry'], 'Rz': -tm['Rz']}
-
-                try:
-                    point.transform(tm, 'machine-local')
-
-                    row = pd.DataFrame(
-                        [[point.name, point.x, point.y, point.z]], columns=header)
-                    pointDFList.append(row)
-                except TypeError:
-                    # caso do sextupolo
-                    pass
-
-        pointDF = pd.concat(pointDFList, ignore_index=True)
-        pointDF = pointDF.set_index(header[0])
-
-        return Analysis.calculateLongitudinalDistances(pointDF)
 
     @staticmethod
     def calculateEuclidianDistance(params, *args):
@@ -753,13 +524,303 @@ class Analysis():
         params = np.zeros(len(dofs))
 
         # aplicando a operação de minimização para achar os parâmetros de transformação
-        deviation = minimize(fun=Analysis.calculateEuclidianDistance, x0=params, args=(ptsMeas, ptsRef, dofs),
-                             method='SLSQP', options={'ftol': 1e-06, 'disp': False})['x']
+        deviation = minimize(fun=DataUtils.calculateEuclidianDistance, x0=params, args=(ptsMeas, ptsRef, dofs),
+                             method='SLSQP', options={'ftol': 1e-10, 'disp': False})['x']
 
         # invertendo o sinal do resultado p/ adequação
         deviation = [dof*(-1) for dof in deviation]
 
         return deviation
+
+    @staticmethod
+    def generateMeasuredFrames(typeOfMagnets, objectDictMeas, objectDictNom, frameDict, accelerator):
+
+        for objectName in objectDictMeas:
+
+            if (accelerator == 'SR'):
+                magnetDict = objectDictMeas[objectName].magnetDict
+            elif (accelerator == 'booster'):
+                magnetDict = objectDictMeas[objectName]
+
+            for magnetName in magnetDict:
+                magnet = magnetDict[magnetName]
+                pointDict = magnet.pointDict
+
+                if (magnet.type == typeOfMagnets):
+                    if (accelerator == 'SR'):
+                        # creating lists for measured and nominal points
+                        try:
+                            pointList = SR.appendPoints(
+                                pointDict, objectDictNom, magnet, objectName)
+                        except KeyError:
+                            print('[Geração dos frames medidos] Falha no imã ' + magnet.name +
+                                  ': o nome de 1 ou mais pontos nominais não correspondem aos medidos.')
+                            continue
+
+                        # calculating the transformation from the nominal points to the measured ones
+                        try:
+                            localTransformation = SR.calculateLocalDeviationsByTypeOfMagnet(
+                                magnet, objectName, pointDict, frameDict, pointList)
+                        except KeyError:
+                            print('[Geração dos frames medidos] Falha no imã ' + magnet.name +
+                                  ': frame medido do quadrupolo adjacente ainda não foi calculado.')
+                            continue
+                    else:
+                        try:
+                            pointList = Booster.appendPoints(
+                                pointDict, objectDictNom, magnet, objectName)
+                        except KeyError:
+                            print('[Geração dos frames medidos] Falha no imã ' + magnet.name +
+                                  ': o nome de 1 ou mais pontos nominais não correspondem aos medidos.')
+                            continue
+
+                        localTransformation = Booster.calculateLocalDeviationsByTypeOfMagnet(
+                            magnet, objectName, pointDict, frameDict, pointList)
+
+                    try:
+                        # referencing the transformation from the frame of nominal magnet to the machine-local
+                        baseTransformation = frameDict[localTransformation.frameFrom].transformation
+                    except KeyError:
+                        print('[Geração dos frames medidos] Falha no imã ' +
+                              magnet.name + ': frame nominal não foi computado; checar tabela com transformações.')
+                        continue
+
+                    # calculating the homogeneous matrix of the transformation from the frame of the measured magnet to the machine-local
+                    transfMatrix = baseTransformation.transfMatrix @ localTransformation.transfMatrix
+
+                    # updating the homogeneous matrix and frameFrom of the already created Transformation
+                    localTransformation.transfMatrix = transfMatrix
+                    localTransformation.frameFrom = 'machine-local'
+
+                    localTransformation.Tx = transfMatrix[0, 3]
+                    localTransformation.Ty = transfMatrix[1, 3]
+                    localTransformation.Tz = transfMatrix[2, 3]
+                    localTransformation.Rx = baseTransformation.Rx + localTransformation.Rx
+                    localTransformation.Ry = baseTransformation.Ry + localTransformation.Ry
+                    localTransformation.Rz = baseTransformation.Rz + localTransformation.Rz
+
+                    # creating a new Frame with the transformation from the measured magnet to machine-local
+                    measMagnetFrame = Frame(
+                        localTransformation.frameTo, localTransformation)
+
+                    # adding it to the frame dictionary
+                    frameDict[measMagnetFrame.name] = measMagnetFrame
+
+    @staticmethod
+    def calculateMagnetsDistances(frameDict, dataType):
+        header = ['Reference', 'Distance (mm)']
+
+        if (dataType == 'measured'):
+            ignoreTag = 'NOMINAL'
+            firstIndex = 0
+            lastIndexShift = 3
+        else:
+            ignoreTag = 'MEASURED'
+            firstIndex = 1
+            lastIndexShift = 2
+
+        distancesList = []
+        frameDictKeys = list(frameDict.keys())
+        for (index, frameName) in enumerate(frameDict):
+            frame = frameDict[frameName]
+
+            if (ignoreTag in frame.name or 'machine-local' in frame.name):
+                continue
+
+            if (index == firstIndex):
+                firstMagnetsFrame = frame
+
+            if (index == len(frameDict) - lastIndexShift):
+                # first frame of the dictionary
+                magnet2frame = firstMagnetsFrame
+            else:
+                # next measured frame
+                magnet2frame = frameDict[frameDictKeys[index+2]]
+
+            magnet1frame = frame
+
+            magnet1coord = np.array([magnet1frame.transformation.Tx,
+                                     magnet1frame.transformation.Ty, magnet1frame.transformation.Tz])
+            magnet2coord = np.array([magnet2frame.transformation.Tx,
+                                     magnet2frame.transformation.Ty, magnet2frame.transformation.Tz])
+
+            vector = magnet2coord - magnet1coord
+            distance = math.sqrt(vector[0]**2 + vector[1]**2)
+
+            splitedName1 = magnet1frame.name.split('-')
+            splitedName2 = magnet2frame.name.split('-')
+
+            magnet1frameName = splitedName1[0] + '-' + \
+                splitedName1[1] + '- ' + splitedName1[2]
+            magnet2frameName = splitedName2[0] + '-' + \
+                splitedName2[1] + '- ' + splitedName2[2]
+
+            distanceReference = magnet1frameName + ' x ' + magnet2frameName
+
+            distanceDF = pd.DataFrame(
+                [[distanceReference, distance]], columns=header)
+            distancesList.append(distanceDF)
+
+        distances = pd.concat(distancesList, ignore_index=True)
+        distances = distances.set_index(header[0])
+
+        # retorna o df com os termos no tipo numérico certo
+        return distances.astype('float32')
+
+
+class Booster():
+    @staticmethod
+    def appendPoints(pointDict, wallDictNom, magnet, wall):
+        pointsMeasured = [[], []]
+        pointsNominal = [[], []]
+
+        for pointName in pointDict:
+            pointMeas = pointDict[pointName]
+            pointNom = wallDictNom[wall][magnet.name].pointDict[pointName]
+
+            # pointName = pointMeas.name
+            pointMeasCoord = [pointMeas.x, pointMeas.y, pointMeas.z]
+            pointNomCoord = [pointNom.x, pointNom.y, pointNom.z]
+
+            # adicionando pontos às suas respectivas listas
+            pointsMeasured[0].append(pointMeasCoord)
+            pointsNominal[0].append(pointNomCoord)
+
+        return (pointsMeasured, pointsNominal)
+
+    @staticmethod
+    def calculateLocalDeviationsByTypeOfMagnet(magnet, girderName, pointDict, frameDict, pointList):
+        pointsMeasured = pointList[0]
+        pointsNominal = pointList[1]
+
+        # no dof separation
+        dofs = ['Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz']
+        deviation = DataUtils.evaluateDeviation(
+            pointsMeasured[0], pointsNominal[0], dofs)
+
+        # creating new Frames and inserting in the frame dictionary
+        # [--- hard-coded, but auto would be better ---]
+        frameFrom = magnet.name + '-NOMINAL'
+        frameTo = magnet.name + '-MEASURED'
+
+        localTransformation = Transformation(
+            frameFrom, frameTo, deviation[0], deviation[1], deviation[2], deviation[3], deviation[4], deviation[5])
+
+        return localTransformation
+
+    @staticmethod
+    def generateCredentials(pointName):
+        details = pointName.split('-')
+
+        wallID = details[0]
+        magnetName = details[0] + '-' + details[1]
+        magnetRef = details[1]
+
+        if ('QUAD' in magnetRef):
+            magnetType = 'quadrupole'
+        elif ('SEXT' in magnetRef):
+            magnetType = 'sextupole'
+        elif ('DIP' in magnetRef):
+            magnetType = 'dipole-booster'
+        else:
+            magnetType = 'other'
+
+        credentials = {}
+        credentials["wall"] = wallID
+        credentials["magnetType"] = magnetType
+        credentials["pointName"] = pointName
+        credentials["magnetName"] = magnetName
+
+        return credentials
+
+    @staticmethod
+    def createObjectsStructure(pointsDF):
+
+        wallDict = {}
+
+        # iterate over dataframe
+        for pointName, coordinate in pointsDF.iterrows():
+
+            credentials = Booster.generateCredentials(pointName)
+
+            # instantiating a Point object
+            point = Point(
+                credentials['pointName'], coordinate['x'], coordinate['y'], coordinate['z'], 'machine-local')
+
+            # finding Girder object or instantiating a new one
+            if (not credentials['wall'] in wallDict):
+                wallDict[credentials['wall']] = {}
+
+            magnetDict = wallDict[credentials['wall']]
+
+            # finding Magnet object or instantiating a new one
+            if (credentials['magnetName'] in magnetDict):
+                # reference to the Magnet object
+                magnet = magnetDict[credentials['magnetName']]
+                # append point into its point list
+                magnet.addPoint(point)
+            else:
+                # instantiate new Magnet object
+                magnet = Magnet(
+                    credentials['magnetName'], credentials['magnetType'])
+                magnet.addPoint(point)
+
+                # including on data structure
+                wallDict[credentials['wall']
+                         ][credentials['magnetName']] = magnet
+
+        # SR.reorderDict(girderDict)
+
+        return wallDict
+
+
+class SR():
+    @staticmethod
+    def reorderDict(girderDict):
+        for girderName in girderDict:
+            girder = girderDict[girderName]
+            if (girder.type == 'B1' and girderName[-3:] == 'B03'):
+                magnetDict = girderDict[girderName].magnetDict
+
+                orderedList = []
+                newMagnetDict = {}
+
+                for magnetName in magnetDict:
+                    magnet = magnetDict[magnetName]
+                    orderedList.insert(0, (magnetName, magnet))
+
+                for item in orderedList:
+                    newMagnetDict[item[0]] = item[1]
+
+                girderDict[girderName].magnetDict = newMagnetDict
+
+    @staticmethod
+    def checkGirderType(girderName):
+        if (girderName[4:] == 'B03' or girderName[4:] == 'B11'):
+            girderType = 'B1'
+        elif (girderName[4:] == 'B05' or girderName[4:] == 'B09'):
+            girderType = 'B2'
+        elif (girderName[4:] == 'B07'):
+            girderType = 'BC'
+        else:
+            girderType = 'multi'
+        return girderType
+
+    @staticmethod
+    def checkMagnetType(magnetName):
+        magnet = magnetName.split('-')[2]
+        if (magnet[:4] == 'QUAD'):
+            magnetType = 'quadrupole'
+        elif (magnet == 'B1'):
+            magnetType = 'dipole-B1'
+        elif (magnet == 'B2'):
+            magnetType = 'dipole-B2'
+        elif (magnet == 'BC'):
+            magnetType = 'dipole-BC'
+        else:
+            magnetType = 'sextupole'
+
+        return magnetType
 
     @staticmethod
     def appendPoints(pointDict, girderDictNom, magnet, girderName):
@@ -849,12 +910,12 @@ class Analysis():
                 # calculating transformation for the 1st group of points associated
                 # with specific degrees of freedom
                 dofs = ['Tz', 'Rx', 'Ry']
-                deviationPartial1 = Analysis.evaluateDeviation(
+                deviationPartial1 = DataUtils.evaluateDeviation(
                     pointsMeasured[0], pointsNominal[0], dofs)
 
                 # 2nd group of points
                 dofs = ['Tx', 'Ty', 'Rz']
-                deviationPartial2 = Analysis.evaluateDeviation(
+                deviationPartial2 = DataUtils.evaluateDeviation(
                     pointsMeasured[1], pointsNominal[1], dofs)
 
                 # agregating parcial dofs
@@ -863,7 +924,7 @@ class Analysis():
             else:
                 # no dof separation
                 dofs = ['Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz']
-                deviation = Analysis.evaluateDeviation(
+                deviation = DataUtils.evaluateDeviation(
                     pointsMeasured[0], pointsNominal[0], dofs)
 
             # creating new Frames and inserting in the frame dictionary
@@ -874,193 +935,209 @@ class Analysis():
             localTransformation = Transformation(
                 frameFrom, frameTo, deviation[0], deviation[1], deviation[2], deviation[3], deviation[4], deviation[5])
 
-        return (localTransformation, True)
+        return localTransformation
 
     @staticmethod
-    def generateMeasuredFrames(typeOfMagnets, girderDictMeas, girderDictNom, frameDict):
+    def createObjectsStructure(pointsDF, isMeasured=False, shiftsB1=None):
 
-        for girderName in girderDictMeas:
-            magnetDict = girderDictMeas[girderName].magnetDict
-            for magnetName in magnetDict:
-                magnet = magnetDict[magnetName]
-                pointDict = magnet.pointDict
+        girderDict = {}
 
-                if (magnet.type == typeOfMagnets):
-                    # creating lists for measured and nominal points
-                    pointList = Analysis.appendPoints(
-                        pointDict, girderDictNom, magnet, girderName)
+        # iterate over dataframe
+        for pointName, coordinate in pointsDF.iterrows():
+            splitedPointName = pointName.split('-')
 
-                    # calculating the transformation from the nominal points to the measured ones
-                    (localTransformation, isDeviationCalculated) = Analysis.calculateLocalDeviationsByTypeOfMagnet(
-                        magnet, girderName, pointDict, frameDict, pointList)
+            girderName = splitedPointName[0] + '-' + splitedPointName[1]
 
-                    if (not isDeviationCalculated):
-                        print('Erro no calculo do desvio do imã ' + magnet.name)
-                        continue
+            girderType = SR.checkGirderType(girderName)
 
-                    # referencing the transformation from the frame of nominal magnet to the machine-local
-                    baseTransformation = frameDict[localTransformation.frameFrom].transformation
+            # default magnet's name (most cases)
+            magnetName = girderName + '-' + splitedPointName[2]
 
-                    # calculating the homogeneous matrix of the transformation from the frame of the measured magnet to the machine-local
-                    transfMatrix = baseTransformation.transfMatrix @ localTransformation.transfMatrix
+            # checking exceptions
+            if (girderType == "B1"):
+                try:
+                    if (splitedPointName[3][:2] == "B1"):
+                        magnetName = girderName + "-B1"
+                except IndexError:
+                    if (splitedPointName[2] == "CENTER"):
+                        magnetName = girderName + "-B1"
 
-                    # updating the homogeneous matrix and frameFrom of the already created Transformation
-                    localTransformation.transfMatrix = transfMatrix
-                    localTransformation.frameFrom = 'machine-local'
+            elif (girderType == "B2"):
+                magnetName = girderName + "-B2"
+            elif (girderType == "BC"):
+                magnetName = girderName + "-BC"
 
-                    localTransformation.Tx = transfMatrix[0, 3]
-                    localTransformation.Ty = transfMatrix[1, 3]
-                    localTransformation.Tz = transfMatrix[2, 3]
-                    localTransformation.Rx = baseTransformation.Rx + localTransformation.Rx
-                    localTransformation.Ry = baseTransformation.Ry + localTransformation.Ry
-                    localTransformation.Rz = baseTransformation.Rz + localTransformation.Rz
+            # instantiating a Point object
+            point = Point(
+                pointName, coordinate['x'], coordinate['y'], coordinate['z'], 'machine-local')
 
-                    # creating a new Frame with the transformation from the measured magnet to machine-local
-                    measMagnetFrame = Frame(
-                        localTransformation.frameTo, localTransformation)
-
-                    # adding it to the frame dictionary
-                    frameDict[measMagnetFrame.name] = measMagnetFrame
-
-    @staticmethod
-    def calculateMagnetsDistances(frameDict, dataType):
-        header = ['Reference', 'Distance (mm)']
-
-        if (dataType == 'measured'):
-            ignoreTag = 'NOMINAL'
-            firstIndex = 0
-            lastIndexShift = 3
-        else:
-            ignoreTag = 'MEASURED'
-            firstIndex = 1
-            lastIndexShift = 2
-
-        distancesList = []
-        frameDictKeys = list(frameDict.keys())
-        for (index, frameName) in enumerate(frameDict):
-            frame = frameDict[frameName]
-
-            if (ignoreTag in frame.name or 'machine-local' in frame.name):
-                continue
-
-            if (index == firstIndex):
-                firstMagnetsFrame = frame
-
-            if (index == len(frameDict) - lastIndexShift):
-                # first frame of the dictionary
-                magnet2frame = firstMagnetsFrame
+            # finding Girder object or instantiating a new one
+            if (girderName in girderDict):
+                girder = girderDict[girderName]
             else:
-                # next measured frame
-                magnet2frame = frameDict[frameDictKeys[index+2]]
+                girderType = SR.checkGirderType(girderName)
+                girder = Girder(girderName, girderType)
+                girderDict[girderName] = girder
 
-            magnet1frame = frame
+            # finding Magnet object or instantiating a new one
+            if (magnetName in girder.magnetDict):
+                # reference to the Magnet object
+                magnet = girder.magnetDict[magnetName]
+                # append point into its point list
+                magnet.addPoint(point)
+            else:
+                magnetType = SR.checkMagnetType(magnetName)
 
-            magnet1coord = np.array([magnet1frame.transformation.Tx,
-                                     magnet1frame.transformation.Ty, magnet1frame.transformation.Tz])
-            magnet2coord = np.array([magnet2frame.transformation.Tx,
-                                     magnet2frame.transformation.Ty, magnet2frame.transformation.Tz])
+                # instantiate new Magnet object
+                magnet = Magnet(magnetName, magnetType)
+                magnet.addPoint(point)
+                if (isMeasured and magnetType == 'dipole-B1'):
+                    magnet.shift = shiftsB1[magnetName]
 
-            vector = magnet2coord - magnet1coord
-            distance = math.sqrt(vector[0]**2 + vector[1]**2)
+                # including on data structure
+                girderDict[girderName].magnetDict[magnetName] = magnet
 
-            splitedName1 = magnet1frame.name.split('-')
-            splitedName2 = magnet2frame.name.split('-')
+        SR.reorderDict(girderDict)
 
-            magnet1frameName = splitedName1[0] + '-' + \
-                splitedName1[1] + '- ' + splitedName1[2]
-            magnet2frameName = splitedName2[0] + '-' + \
-                splitedName2[1] + '- ' + splitedName2[2]
-
-            distanceReference = magnet1frameName + ' x ' + magnet2frameName
-
-            distanceDF = pd.DataFrame(
-                [[distanceReference, distance]], columns=header)
-            distancesList.append(distanceDF)
-
-        distances = pd.concat(distancesList, ignore_index=True)
-        distances = distances.set_index(header[0])
-
-        # retorna o df com os termos no tipo numérico certo
-        return distances.astype('float32')
+        return girderDict
 
 
 class App():
     def __init__(self):
-        self.lookupTable = None
-        self.measured = None
-        self.nominals = None
-        self.girderDictMeas = None
-        self.girderDictNom = None
-
+        # SR variables
+        self.SR_lookupTable = None
+        self.SR_measured = None
+        self.SR_nominals = None
+        self.SR_girderDictMeas = None
+        self.SR_girderDictNom = None
+        self.SR_frameDict = None
         self.shiftsB1 = None
+
+        # Booster variables
+        self.booster_lookupTable = None
+        self.booster_measured = None
+        self.booster_nominals = None
+        self.booster_wallDictMeas = None
+        self.booster_wallDictNom = None
+        self.booster_frameDict = None
 
         self.runInDevMode()
 
-    def readNominalsFile(self, filePath):
-        nominals = DataUtils.readExcel(filePath, "points")
-        self.nominals = nominals
+    def readNominalsFile(self, filePath, accelerator):
 
-    def readMeasuredFile(self, filePath):
-        measured = DataUtils.readExcel(filePath, "points")
-        self.measured = measured
+        if (accelerator == 'SR'):
+            nominals = DataUtils.readExcel(filePath, "points")
+            self.SR_nominals = nominals
+        else:
+            nominals = DataUtils.readCSV(filePath, "points")
+            self.booster_nominals = nominals
 
-    def readLookuptableFile(self, filePath):
-        lookupTable = DataUtils.readExcel(filePath, "lookuptable")
-        self.lookupTable = lookupTable
+    def readMeasuredFile(self, filePath, accelerator):
+        if (accelerator == 'SR'):
+            measured = DataUtils.readExcel(filePath, "points")
+            self.SR_measured = measured
+        else:
+            measured = DataUtils.readCSV(filePath, "points")
+            self.booster_measured = measured
+
+    def readLookuptableFile(self, filePath, accelerator):
+        if (accelerator == 'SR'):
+            lookupTable = DataUtils.readExcel(filePath, "lookuptable")
+            self.SR_lookupTable = lookupTable
+        else:
+            lookupTable = DataUtils.readCSV(filePath, "lookuptable")
+            self.booster_lookupTable = lookupTable
 
     def loadEnv(self):
         with open("config.json", "r") as file:
             config = json.load(file)
 
-        self.readNominalsFile(config['ptsNomFileName'])
-        self.readMeasuredFile(config['ptsMeasFileName'])
-        self.readLookuptableFile(config['lookupFileName'])
-
+        # SR files
+        self.readNominalsFile(config['SR_ptsNomFileName'], 'SR')
+        self.readMeasuredFile(config['SR_ptsMeasFileName'], 'SR')
+        self.readLookuptableFile(config['SR_lookupFileName'], 'SR')
         self.shiftsB1 = config['shiftsB1']
 
-    def generateMeasuredFrames(self):
-        Analysis.generateMeasuredFrames(
-            'quadrupole', self.girderDictMeas, self.girderDictNom, self.frameDict)
-        Analysis.generateMeasuredFrames(
-            'dipole-B1', self.girderDictMeas, self.girderDictNom, self.frameDict)
-        Analysis.generateMeasuredFrames(
-            'dipole-B2', self.girderDictMeas, self.girderDictNom, self.frameDict)
-        Analysis.generateMeasuredFrames(
-            'dipole-BC', self.girderDictMeas, self.girderDictNom, self.frameDict)
+        # Booster files
+        self.readNominalsFile(config['booster_ptsNomFileName'], 'booster')
+        self.readMeasuredFile(config['booster_ptsMeasFileName'], 'booster')
+        self.readLookuptableFile(config['booster_lookupFileName'], 'booster')
+
+    def generateMeasuredFrames(self, accelerator):
+        if (accelerator == 'SR'):
+            DataUtils.generateMeasuredFrames(
+                'quadrupole', self.SR_girderDictMeas, self.SR_girderDictNom, self.SR_frameDict, 'SR')
+            DataUtils.generateMeasuredFrames(
+                'dipole-B1', self.SR_girderDictMeas, self.SR_girderDictNom, self.SR_frameDict, 'SR')
+            DataUtils.generateMeasuredFrames(
+                'dipole-B2', self.SR_girderDictMeas, self.SR_girderDictNom, self.SR_frameDict, 'SR')
+            DataUtils.generateMeasuredFrames(
+                'dipole-BC', self.SR_girderDictMeas, self.SR_girderDictNom, self.SR_frameDict, 'SR')
+            return
+
+        if (accelerator == 'booster'):
+            DataUtils.generateMeasuredFrames(
+                'quadrupole', self.booster_girderDictMeas, self.booster_girderDictNom, self.booster_frameDict, 'booster')
+            DataUtils.generateMeasuredFrames(
+                'dipole-booster', self.booster_girderDictMeas, self.booster_girderDictNom, self.booster_frameDict, 'booster')
+            return
 
     def runInDevMode(self):
         self.loadEnv()
 
-        self.frameDict = DataUtils.generateFrameDict(self.lookupTable)
+        self.booster_frameDict = DataUtils.generateFrameDict(
+            self.booster_lookupTable)
 
-        self.girderDictNom = DataUtils.createObjectsStructure(self.nominals)
+        self.booster_girderDictNom = Booster.createObjectsStructure(
+            self.booster_nominals)
+        self.booster_girderDictMeas = Booster.createObjectsStructure(
+            self.booster_measured)
 
-        self.girderDictMeas = DataUtils.createObjectsStructure(
-            self.measured, isMeasured=True, shiftsB1=self.shiftsB1)
+        DataUtils.transformToLocalFrame(
+            self.booster_girderDictNom, self.booster_frameDict, 'booster')
+        DataUtils.transformToLocalFrame(
+            self.booster_girderDictMeas, self.booster_frameDict, 'booster')
 
-        DataUtils.transformToLocalFrame(self.girderDictNom, self.frameDict)
-        DataUtils.transformToLocalFrame(self.girderDictMeas, self.frameDict)
+        self.generateMeasuredFrames('booster')
 
-        self.generateMeasuredFrames()
+        self.booster_frameDict = DataUtils.sortFrameDictByBeamTrajectory(
+            self.booster_frameDict, 'booster')
 
-        self.frameDict = DataUtils.sortFrameDictByBeamTrajectory(
-            self.frameDict)
+        self.booster_magnetsDeviations = DataUtils.calculateMagnetsDeviations(
+            self.booster_frameDict)
 
-        self.magnetsDeviations = DataUtils.calculateMagnetsDeviations(
-            self.frameDict)
+        DataUtils.plotDevitationData(self.booster_magnetsDeviations)
 
-        self.magnetsDistancesMeas = Analysis.calculateMagnetsDistances(
-            self.frameDict, 'measured')
+        # self.frameDict = DataUtils.generateFrameDict(self.SR_lookupTable)
 
-        self.magnetsDistancesNom = Analysis.calculateMagnetsDistances(
-            self.frameDict, 'nominal')
+        # self.SR_girderDictNom = SR.createObjectsStructure(self.SR_nominals)
 
-        DataUtils.writeToExcel(
-            "../data/output/distances-measured.xlsx", self.magnetsDistancesMeas)
-        DataUtils.writeToExcel(
-            "../data/output/distances-nominal.xlsx", self.magnetsDistancesNom)
+        # self.SR_girderDictMeas = SR.createObjectsStructure(
+        #     self.SR_measured, isMeasured=True, shiftsB1=self.shiftsB1)
 
-        DataUtils.plotDevitationData(self.magnetsDeviations)
+        # DataUtils.transformToLocalFrame(self.SR_girderDictNom, self.frameDict)
+        # DataUtils.transformToLocalFrame(self.SR_girderDictMeas, self.frameDict)
+
+        # self.generateMeasuredFrames()
+
+        # self.frameDict = DataUtils.sortFrameDictByBeamTrajectory(
+        #     self.frameDict)
+
+        # self.magnetsDeviations = DataUtils.calculateMagnetsDeviations(
+        #     self.frameDict)
+
+        # self.magnetsDistancesMeas = DataUtils.calculateMagnetsDistances(
+        #     self.frameDict, 'measured')
+
+        # self.magnetsDistancesNom = DataUtils.calculateMagnetsDistances(
+        #     self.frameDict, 'nominal')
+
+        # DataUtils.writeToExcel(
+        #     "../data/output/distances-measured.xlsx", self.magnetsDistancesMeas)
+        # DataUtils.writeToExcel(
+        #     "../data/output/distances-nominal.xlsx", self.magnetsDistancesNom)
+
+        # DataUtils.plotDevitationData(self.magnetsDeviations)
 
 
 if __name__ == "__main__":

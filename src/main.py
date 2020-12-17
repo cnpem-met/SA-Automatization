@@ -1,9 +1,13 @@
-from ui import Ui
-from PyQt5 import QtWidgets
-import sys
+# imports de bibliotecas
+from accelerators import (Booster, SR)
+from dataUtils import (DataUtils)
 
-from facModel import FacModel
-from dataOperator import DataOperator
+from PyQt5 import QtWidgets, uic
+from PyQt5.QtWidgets import (QFileDialog, QWidget)
+from PyQt5.QtGui import (QColor)
+import sys
+import json
+from functools import partial
 
 
 class App(QtWidgets.QApplication):
@@ -17,30 +21,31 @@ class App(QtWidgets.QApplication):
         self.ui = Ui(self)
 
         # Changuing the default window theme
-        self.setStyle('Fusion')
+        # self.setStyle('Fusion')
 
         # Calling the app to execute
         sys.exit(self.exec_())
 
     def initAppVariables(self):
-        self.lookupTable = None
-        self.measured = None
-        self.nominals = None
-        self.girderDictMeas = None
-        self.girderDictNom = None
+        self.lookupTable = {}
+        self.measured = {}
+        self.nominals = {}
+        self.entitiesDictMeas = {}
+        self.entitiesDictNom = {}
+        self.frameDict = {}
 
         self.shiftsB1 = None
 
         # flags
-        self.isNominalsLoaded = False
-        self.isMeasuredLoaded = False
-        self.isLookuptableLoaded = False
-        self.isInternalDataProcessed = False
+        self.isNominalsLoaded = {"SR": False, "booster": False}
+        self.isMeasuredLoaded = {"SR": False, "booster": False}
+        self.isLookuptableLoaded = {"SR": False, "booster": False}
+        self.isInternalDataProcessed = {"SR": False, "booster": False}
 
         # loaded filenames
-        self.ptsNomFileName = ""
-        self.ptsMeasFileName = ""
-        self.lookupFileName = ""
+        self.ptsNomFileName = {}
+        self.ptsMeasFileName = {}
+        self.lookupFileName = {}
 
 
 class Ui(QtWidgets.QMainWindow):
@@ -62,189 +67,301 @@ class Ui(QtWidgets.QMainWindow):
 
     def createEventListeners(self):
         # toolbar actions
-        self.actionNominals.triggered.connect(self.loadNominalsFile)
-        self.actionMeasured.triggered.connect(self.loadMeasuredFile)
-        self.actionLookup.triggered.connect(self.loadLookuptableFile)
+        self.actionNom_SR.triggered.connect(partial(self.loadNominalsFile, 'SR'))
+        self.actionNom_booster.triggered.connect(partial(self.loadNominalsFile, 'booster'))
+        
+        self.actionMeas_SR.triggered.connect(partial(self.loadMeasuredFile, 'SR'))
+        self.actionMeas_booster.triggered.connect(partial(self.loadMeasuredFile, 'booster'))
+
+        self.actionFrames_SR.triggered.connect(partial(self.loadLookuptableFile, 'SR'))
+        self.actionFrames_booster.triggered.connect(partial(self.loadLookuptableFile, 'booster'))
+
         self.actionSaveEnv.triggered.connect(self.saveEnv)
         self.actionLoadEnv.triggered.connect(self.loadEnv)
 
         # buttons
-        self.btnPlotAbsolute.clicked.connect(self.plotAbsolute)
-        self.expMachModel.clicked.connect(self.exportMachineModel)
+        self.plotAbsolute_SR.clicked.connect(partial(self.plotAbsolute, 'SR'))
+        self.plotAbsolute_booster.clicked.connect(partial(self.plotAbsolute, 'booster'))
+        
+        # self.expMachModel.clicked.connect(self.exportMachineModel)
 
-    def exportMachineModel(self):
-        distancesNom = Analysis.generateLongitudinalDistances(
-            self.app.girderDictNom)
+    # def exportMachineModel(self):
+    #     distancesNom = Analysis.generateLongitudinalDistances(
+    #         self.app.entitiesDictNom)
 
-        distancesMeas = Analysis.generateLongitudinalDistances(
-            self.app.girderDictMeas)
+    #     distancesMeas = Analysis.generateLongitudinalDistances(
+    #         self.app.entitiesDictMeas)
 
-        DataUtils.writeToExcel(
-            "../data/output/distances-measured.xlsx", distancesNom)
-        DataUtils.writeToExcel(
-            "../data/output/distances-nominal.xlsx", distancesMeas)
+    #     DataUtils.writeToExcel(
+    #         "../data/output/distances-measured.xlsx", distancesNom)
+    #     DataUtils.writeToExcel(
+    #         "../data/output/distances-nominal.xlsx", distancesMeas)
 
-    def logMessage(self, message):
-        self.logbook.append(message)
+    def logMessage(self, message, severity='normal'):
+        
+        if (severity != 'normal'):
+
+            if (severity == 'danger'):
+                fontWeight = 63
+                color = 'red'
+            elif (severity == 'alert'):
+                fontWeight = 57
+                color = 'yellow'
+            elif (severity == 'sucess'):
+                fontWeight = 57
+                color = 'green'
+
+            # saving properties
+            fw = self.logbook.fontWeight()
+            tc = self.logbook.textColor()
+
+            self.logbook.setFontWeight(fontWeight)
+            self.logbook.setTextColor(QColor(color))
+            self.logbook.append(message)
+
+            self.logbook.setFontWeight(fw)
+            self.logbook.setTextColor(tc)
+        else:
+            self.logbook.append(message)
+
+        
 
     def saveEnv(self):
         with open("config.json", "w") as file:
-            config = {'ptsNomFileName': self.app.ptsNomFileName,
-                      'ptsMeasFileName': self.app.ptsMeasFileName, 'lookupFileName': self.app.lookupFileName, 'shiftsB1': self.app.shiftsB1}
+            config = {'ptsNomFileName': {"booster": self.app.ptsNomFileName['booster'], "SR": self.app.ptsNomFileName['SR']},
+                      'ptsMeasFileName': {"booster": self.app.ptsMeasFileName['booster'], "SR": self.app.ptsMeasFileName['SR']},
+                      'lookupTable': {"booster": self.app.lookupTable['booster'], "SR": self.app.lookupTable['SR']},
+                      'shiftsB1': self.app.shiftsB1}
             json.dump(config, file)
 
     def loadEnv(self):
         with open("config.json", "r") as file:
             config = json.load(file)
 
-        self.loadNominalsFile(filePath=config['ptsNomFileName'])
-        self.loadMeasuredFile(filePath=config['ptsMeasFileName'])
-        self.loadLookuptableFile(filePath=config['lookupFileName'])
+        self.loadNominalsFile(
+            'booster', filePath=config['ptsNomFileName']['booster'])
+        self.loadNominalsFile('SR', filePath=config['ptsNomFileName']['SR'])
 
-    def openFileNameDialog(self):
+        self.loadMeasuredFile(
+            'booster', filePath=config['ptsMeasFileName']['booster'])
+        self.loadMeasuredFile('SR', filePath=config['ptsMeasFileName']['SR'])
+
+        self.loadLookuptableFile(
+            'booster', filePath=config['lookupFileName']['booster'])
+        self.loadLookuptableFile('SR', filePath=config['lookupFileName']['SR'])
+
+    def openFileNameDialog(self, typeOfFile, accelerator):
         dialog = QWidget()
 
         options = QFileDialog.Options()
         # options |= QFileDialog.DontUseNativeDialog
         fileName, _ = QFileDialog.getOpenFileName(
-            dialog, "Selecione o arquivo", "", "Excel Sheet (*.xlsx)", options=options)
+            dialog, "Selecione o arquivo - " + typeOfFile + " - " + accelerator, "", filter="All files (*)", options=options)
 
         return fileName
 
-    def loadNominalsFile(self, filePath=None):
+    def loadNominalsFile(self, accelerator, filePath=None):
 
-        filepath = filePath or self.openFileNameDialog()
+        filepath = filePath or self.openFileNameDialog('pontos nominais', accelerator)
 
         if(not filepath):
             return
 
-        rawPtsNominal = DataUtils.readExcel(
-            filepath, 'points')
+        fileName = filepath.split('/')[len(filepath.split('/')) - 1]
+        fileExtension = fileName.split('.')[1]
+
+        if (fileExtension == 'txt' or fileExtension == 'csv' or fileExtension == 'TXT' or fileExtension == 'CSV'):
+            nominals = DataUtils.readCSV(filepath, 'points')
+        elif (fileExtension == 'xlsx'):
+            nominals = DataUtils.readExcel(
+                filepath, 'points')
+        else:
+            self.logMessage("Formato do arquivo "+fileName+" não suportado.", severity="alert")
+            return
+
         # gerando grupos de pontos
-        self.app.nominals = PointGroup(
-            rawPtsNominal, "nominal")
+        self.app.nominals[accelerator] = nominals
 
-        self.isNominalsLoaded = True
-        self.frameNom.setStyleSheet(
-            "background-color:green; border-radius:10px;")
+        self.app.isNominalsLoaded[accelerator] = True
+        
+        if (accelerator == 'SR'):
+            self.ledNom_SR.setStyleSheet("background-color:green; border-radius:7px;")
+            self.fileNom_SR.setText(fileName)
+            self.fileNom_SR.setToolTip(fileName)
+        elif (accelerator == 'booster'):
+            self.ledNom_booster.setStyleSheet("background-color:green; border-radius:7px;")
+            self.fileNom_booster.setText(fileName)
+            self.fileNom_booster.setToolTip(fileName)
 
-        self.ptsNomFileName = filepath
 
-        self.logMessage("Nominal's file loaded")
 
-        self.checkAllFilesAndProcessData()
+        self.app.ptsNomFileName[accelerator] = filepath
 
-    def loadMeasuredFile(self, filePath=None):
+        self.logMessage("Arquivo nominal do "+accelerator+" carregado.")
 
-        filepath = filePath or self.openFileNameDialog()
+        self.checkAllFilesAndProcessData(accelerator)
+
+    def loadMeasuredFile(self, accelerator, filePath=None):
+
+        filepath = filePath or self.openFileNameDialog('pontos medidos', accelerator)
+
+        if(not filepath):
+            return
+
+        fileName = filepath.split('/')[len(filepath.split('/')) - 1]
+        fileExtension = fileName.split('.')[1]
+
+        if (fileExtension == 'txt' or fileExtension == 'csv' or fileExtension == 'TXT' or fileExtension == 'CSV'):
+            measured = DataUtils.readCSV(filepath, 'points')
+        elif (fileExtension == 'xlsx'):
+            measured = DataUtils.readExcel(
+                filepath, 'points')
+        else:
+            self.logMessage("Formato do arquivo "+fileName+" não suportado.", severity="alert")
+            return
+
+        self.app.measured[accelerator] = measured
+
+        self.app.isMeasuredLoaded[accelerator] = True
+        
+        if (accelerator == 'SR'):
+            self.ledMeas_SR.setStyleSheet("background-color:green; border-radius:7px;")
+            self.fileMeas_SR.setText(fileName)
+            self.fileMeas_SR.setToolTip(fileName)
+        elif (accelerator == 'booster'):
+            self.ledMeas_booster.setStyleSheet("background-color:green; border-radius:7px;")
+            self.fileMeas_booster.setText(fileName)
+            self.fileMeas_booster.setToolTip(fileName)
+
+        self.app.ptsMeasFileName[accelerator] = filepath
+
+        self.logMessage("Arquivo com medidos do "+accelerator+" carregado.")
+
+        self.checkAllFilesAndProcessData(accelerator)
+
+    def loadLookuptableFile(self, accelerator, filePath=None):
+
+        filepath = filePath or self.openFileNameDialog('lookup de frames', accelerator)
 
         if(not filepath):
             return
 
-        rawPtsMeasured = DataUtils.readExcel(
-            filepath, 'points')
+        fileName = filepath.split('/')[len(filepath.split('/')) - 1]
+        fileExtension = fileName.split('.')[1]
 
-        self.app.measured = PointGroup(
-            rawPtsMeasured, "measured")
-
-        self.isMeasuredLoaded = True
-        self.frameMeas.setStyleSheet(
-            "background-color:green; border-radius:10px;")
-
-        self.ptsMeasFileName = filepath
-
-        self.logMessage("Measured's file loaded")
-
-        self.checkAllFilesAndProcessData()
-
-    def loadLookuptableFile(self, filePath=None):
-
-        filepath = filePath or self.openFileNameDialog()
-
-        if(not filepath):
-            return
-        try:
-            # carregando dados das planilhas
-            self.lookuptable_MLtoLocal = DataUtils.readExcel(
+        if (fileExtension == 'txt' or fileExtension == 'csv' or fileExtension == 'TXT' or fileExtension == 'CSV'):
+            lookuptable = DataUtils.readCSV(filepath, 'lookuptable')
+        elif (fileExtension == 'xlsx'):
+            lookuptable = DataUtils.readExcel(
                 filepath, 'lookuptable')
-        except KeyError:
-            # erro quando planilha alvo não é a de índice 0 dentro do arquivo
-            print("erro")
+        else:
+            self.logMessage("Format of file "+fileName+"not supported.")
             return
 
-        if (self.isMeasuredLoaded):
-            self.app.measured.lookuptable = self.lookuptable_MLtoLocal
+        self.app.lookupTable[accelerator] = lookuptable
 
-        if(self.isNominalsLoaded):
-            self.app.nominals.lookuptable = self.lookuptable_MLtoLocal
+        self.app.isLookuptableLoaded[accelerator] = True
+        
+        if (accelerator == 'SR'):
+            self.ledFrames_SR.setStyleSheet("background-color:green; border-radius:7px;")
+            self.fileFrames_SR.setText(fileName)
+            self.fileFrames_SR.setToolTip(fileName)
+        elif (accelerator == 'booster'):
+            self.ledFrames_booster.setStyleSheet("background-color:green; border-radius:7px;")
+            self.fileFrames_booster.setText(fileName)
+            self.fileFrames_booster.setToolTip(fileName)
 
-        self.isLookuptableLoaded = True
-        self.frameLookup.setStyleSheet(
-            "background-color:green; border-radius:10px;")
+        self.app.lookupFileName[accelerator] = filepath
 
-        self.lookupFileName = filepath
+        self.logMessage("Lookuptable de frames do " + accelerator + " carregada.")
 
-        self.logMessage("Lookuptable's file loaded")
+        self.checkAllFilesAndProcessData(accelerator)
 
-        self.app.processEvents()
-        self.checkAllFilesAndProcessData()
-
-    def checkAllFilesAndProcessData(self):
+    def checkAllFilesAndProcessData(self, accelerator):
         # se todos os arquivos tiverem sido carregados
-        if((self.isNominalsLoaded and self.isMeasuredLoaded and self.isLookuptableLoaded) and not self.isInternalDataProcessed):
-            self.logMessage("Transforming points to Local frame...")
-            self.processInternalData()
-            self.isInternalDataProcessed = True
-            self.logMessage("Ploting and exporting ready to go")
+        if((self.app.isNominalsLoaded[accelerator] and self.app.isMeasuredLoaded[accelerator] and self.app.isLookuptableLoaded[accelerator]) and not self.app.isInternalDataProcessed[accelerator]):
+            self.logMessage("Transformando pontos do " + accelerator + " para os frames locais...")
+            self.app.processEvents()
+            self.processInternalData(accelerator)
+            self.app.isInternalDataProcessed[accelerator] = True
+            self.logMessage("Dados do "+accelerator+" prontos.", severity="sucess")
 
-    def processInternalData(self):
-        # operação sobre pontos carregados
-        self.transformPointsToLocalFrame()
-        self.generateGirderObjects()
-        # self.computeCentroids()
+    def processInternalData(self, accelerator):
+        # creating frame's dict for the particular accelerator
+        self.app.frameDict[accelerator] = DataUtils.generateFrameDict(
+            self.app.lookupTable[accelerator])
+
+        if (accelerator == 'booster'):
+            # try:
+            #     entitiesDictNom = Booster.createObjectsStructure(self.app.nominals['booster'])
+            # except IndexError:
+            #     self.logMessage('Erro ao carregar pontos nominais do booster. Checar se todos os pontos seguem a nomenclatura correta.', severity='danger')
+            #     self.ledNom_booster.setStyleSheet("background-color:yellow; border-radius:7px;")
+            #     return
+            entitiesDictNom = Booster.createObjectsStructure(self.app.nominals['booster'])
+            entitiesDictMeas = Booster.createObjectsStructure(self.app.measured['booster'])
+        elif (accelerator == 'SR'):
+            entitiesDictNom = SR.createObjectsStructure(
+                self.app.nominals['SR'])
+            entitiesDictMeas = SR.createObjectsStructure(
+                self.app.measured['SR'])
+
+        self.app.entitiesDictNom[accelerator] = entitiesDictNom
+        self.app.entitiesDictMeas[accelerator] = entitiesDictMeas
+
+        DataUtils.transformToLocalFrame(
+            self.app.entitiesDictNom[accelerator], self.app.frameDict[accelerator], accelerator)
+        DataUtils.transformToLocalFrame(
+            self.app.entitiesDictMeas[accelerator], self.app.frameDict[accelerator], accelerator)
+
+        self.generateMeasuredFrames(accelerator)
+
+        self.app.frameDict[accelerator] = DataUtils.sortFrameDictByBeamTrajectory(
+            self.app.frameDict[accelerator], accelerator)
 
         # habilita botões de plot
-        self.btnPlotAbsolute.setEnabled(True)
-        self.btnExpAbsolute.setEnabled(True)
-        self.expMachModel.setEnabled(True)
+        if(accelerator == 'SR'):
+            self.plotAbsolute_SR.setEnabled(True)
+            self.expAbsolute_SR.setEnabled(True)
+            self.expMachModel_SR.setEnabled(True)
+        elif (accelerator == 'booster'):
+            self.plotAbsolute_booster.setEnabled(True)
+            self.expAbsolute_booster.setEnabled(True)
 
-    def transformPointsToLocalFrame(self):
-        # transformando para frame local
-        self.app.nominals.transformToLocalFrame()
-        self.app.measured.transformToLocalFrame()
+    def generateMeasuredFrames(self, accelerator):
+        if (accelerator == 'SR'):
+            DataUtils.generateMeasuredFrames(
+                'quadrupole', self.app.entitiesDictMeas[accelerator], self.app.entitiesDictNom[accelerator], self.app.frameDict[accelerator], 'SR', self)
+            DataUtils.generateMeasuredFrames(
+                'dipole-B1', self.app.entitiesDictMeas[accelerator], self.app.entitiesDictNom[accelerator], self.app.frameDict[accelerator], 'SR', self)
+            DataUtils.generateMeasuredFrames(
+                'dipole-B2', self.app.entitiesDictMeas[accelerator], self.app.entitiesDictNom[accelerator], self.app.frameDict[accelerator], 'SR', self)
+            DataUtils.generateMeasuredFrames(
+                'dipole-BC', self.app.entitiesDictMeas[accelerator], self.app.entitiesDictNom[accelerator], self.app.frameDict[accelerator], 'SR', self)
+            return
 
-        # print(self.app.nominals.ptList[:50])
+        if (accelerator == 'booster'):
+            DataUtils.generateMeasuredFrames(
+                'quadrupole', self.app.entitiesDictMeas[accelerator], self.app.entitiesDictNom[accelerator], self.app.frameDict[accelerator], 'booster', self)
+            DataUtils.generateMeasuredFrames(
+                'dipole-booster', self.app.entitiesDictMeas[accelerator], self.app.entitiesDictNom[accelerator], self.app.frameDict[accelerator], 'booster', self)
+            return
 
-    def generateGirderObjects(self):
-        # gerando grupos de berços
-        self.girderNominal = GirderGroup(self.app.nominals)
-        self.girderMeasured = GirderGroup(self.app.measured)
-
-    def computeCentroids(self):
-       # computando os centroides
-        self.girderNominal.computeCentroids()
-        self.girderMeasured.computeCentroids()
-
-    def plotAbsolute(self):
-        self.logMessage("Plotting the absolute alignment profile...")
+    def plotAbsolute(self, accelerator):
+        self.logMessage(
+            "Plotando o perfil de alinhamento absoluto do "+accelerator+"...")
         self.app.processEvents()
 
         # checando se todos os arquivos foram devidamente carregados
-        if(not self.isNominalsLoaded or not self.isMeasuredLoaded or not self.isLookuptableLoaded):
-            self.logMessage("error: not all required files were loaded")
+        if(not self.app.isNominalsLoaded[accelerator] or not self.app.isMeasuredLoaded[accelerator] or not self.app.isLookuptableLoaded[accelerator]):
+            self.logMessage(
+                "Erro ao plotar gráfico: nem todos os arquivos foram carregados")
             return
 
-        # calculando desvios de todos dof de cada berço com o best-fit de seus pontos
-        diffAllDoFs = GirderGroup.evalDiff_bestFit(
-            self.girderNominal.pointGroup.ptList, self.girderMeasured.pointGroup.ptList)
+        magnetsDeviations = DataUtils.calculateMagnetsDeviations(
+            self.app.frameDict[accelerator])
 
-        # definindo as propriedades do plot
-        plot_args = {'y_list': ['Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz'], 'title_list': [
-            'Transversal', 'Longitudinal', 'Vertical', 'Pitch', 'Roll', 'Yaw'], 'fig_title': 'Global Alignment Profile - Storage Ring'}
-
-        # chamando o plot
-        Plot.plotGirderDeviation(diffAllDoFs, 'allDoFs',
-                                 plot_args, freezePlot=True)
+        DataUtils.plotDevitationData(magnetsDeviations, accelerator)
 
 
 if __name__ == "__main__":
