@@ -3,6 +3,7 @@ ignore/
 data/output/
 data/misc/
 data/input/old
+data/input/point-files/
 
 to-do.txt
 

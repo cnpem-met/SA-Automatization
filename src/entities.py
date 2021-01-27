@@ -11,6 +11,16 @@ class Point(object):
         self.z = z
         self.frameName = frame
 
+    @classmethod
+    def copyFromPoint(cls, point):
+        name = point.name
+        x = point.x
+        y = point.y
+        z = point.z
+        frameName = point.frameName
+        
+        return cls(name, x, y, z, frameName)
+
     def transform(self, transfMatrix, newFrameName):
         point = np.array([[self.x], [self.y], [self.z], [1]])
 
