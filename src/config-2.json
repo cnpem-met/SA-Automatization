@@ -1,25 +1,25 @@
 {"ptsNomFileName":
     {
-        "booster": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/booster-pontos-nominais.txt", 
-        "SR": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/anel-pontos-nominais.txt",
-        "LTB": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/LTB-pontos-nominais.txt",
-        "BTS": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/BTS-pontos-nominais.txt",
+        "booster": "", 
+        "SR": "",
+        "LTB": "",
+        "BTS": "",
         "FE": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/FE-pontos-nominais.txt"
     },
 "ptsMeasFileName":
     {
-        "booster": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/booster-pontos-medidos.txt", 
-        "SR": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/anel-pontos-medidos.txt",
-        "LTB": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/LTB-pontos-medidos.txt",
-        "BTS": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/BTS-pontos-medidos.txt",
+        "booster": "", 
+        "SR": "",
+        "LTB": "",
+        "BTS": "",
         "FE": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/FE-pontos-medidos.txt"
     },
 "lookupFileName": 
     {
-        "booster": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/booster-frames.csv",
-        "SR": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/anel-frames.csv",
-        "LTB": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/LTB-frames.csv",
-        "BTS": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/BTS-frames.csv",
+        "booster": "",
+        "SR": "",
+        "LTB": "",
+        "BTS": "",
         "FE": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/FE-frames.csv"
     },
 "shiftsB1": 

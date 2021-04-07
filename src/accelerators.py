@@ -24,7 +24,7 @@ class Booster():
         return (pointsMeasured, pointsNominal)
 
     @staticmethod
-    def calculateLocalDeviationsByTypeOfMagnet(magnet, pointList):
+    def calculateLocalDeviations(magnet, pointList):
         pointsMeasured = pointList[0]
         pointsNominal = pointList[1]
 
@@ -119,7 +119,6 @@ class Booster():
 
         return wallDict
 
-
 class SR():
     @staticmethod
     def reorderDict(girderDict):
@@ -189,9 +188,7 @@ class SR():
                 points.append([point.x, point.y, point.z])
 
             # changuing back point's frame
-            frameFrom = girderName + '-QUAD01-MEASURED'
-            frameTo = magnet.name+'-NOMINAL'
-            Frame.changeFrame(frameFrom, frameTo, pointDict, frameDict)
+            Frame.changeFrame(frameTo, frameFrom, pointDict, frameDict)
 
             # calculating mid point position
             midPoint = np.mean(points, axis=0)
@@ -206,7 +203,7 @@ class SR():
             dRy = 24.044474 * 10**-3  # rad
             # differentiating the rotation's signal according to the type of assembly (girder B03 or B11)
             if (girderName[-3:] == 'B03'):
-                dRy = - 24.044474 * 10**-3  # rad
+                dRy = - dRy
 
             # calculating shift in both planar directions
             shiftTransv = dist * math.cos(dRy)
@@ -214,14 +211,12 @@ class SR():
             shiftVert = -228.5
 
             # calculating shifted point position, which defines the origin of the frame "dipole-measured"
-            shiftedPointPosition = [
-                midPoint[0] - shiftTransv, midPoint[1] + shiftVert, midPoint[2] + shiftLong]
+            shiftedPointPosition = [midPoint[0] - shiftTransv, midPoint[1] + shiftVert, midPoint[2] + shiftLong]
 
             # defining a transformation between "dipole-measured" and "quadrupole-measured"
             frameFrom = girderName + '-QUAD01-MEASURED'
             frameTo = magnet.name + '-MEASURED'
-            localTransformation = Transformation(
-                frameFrom, frameTo, 0, 0, shiftedPointPosition[2], 0, dRy * 10**3, 0)  # mrad
+            localTransformation = Transformation(frameFrom, frameTo, 0, 0, shiftedPointPosition[2], 0, dRy * 10**3, 0)  # mrad
 
         else:
             if (magnet.type == 'dipole-B2'):
@@ -231,24 +226,20 @@ class SR():
                 deviationPartial1 = DataUtils.evaluateDeviation(
                     pointsMeasured[0], pointsNominal[0], dofs)
                 
-                # # TENTATIVA DE FAZER COM QUE GRUPO CORRESPONDENTE MEXA TAMBÉM
-                # transfPoints = []
-                # for point in pointsNominal[1]:
-                #     transfPt = Point('n/c', point[0], point[1], point[2], 'n/c')
-                #     # transfPt = Point.copyFromPoint(point)
-                #     transform = Transformation('n/c', 'n/c', 0, deviationPartial1[0], 0, \
-                #                                             deviationPartial1[1], 0, deviationPartial1[2])
-                #     transfPt.transform(transform.transfMatrix, 'n/c')
-                #     transfPoints.append([transfPt.x, transfPt.y, transfPt.z])
-
-                # print(transfPoints)
-                # print(pointsNominal[1])
-                # print('---------')
+                # Forcing the "corresponding group"
+                transfPoints = []
+                for point in pointsNominal[1]:
+                    transfPt = Point('n/c', point[0], point[1], point[2], 'n/c')
+                    # transfPt = Point.copyFromPoint(point)
+                    transform = Transformation('n/c', 'n/c', 0, deviationPartial1[0], 0, \
+                                                            deviationPartial1[1], 0, deviationPartial1[2])
+                    transfPt.transform(transform.transfMatrix, 'n/c')
+                    transfPoints.append([transfPt.x, transfPt.y, transfPt.z])
 
                 # 2nd group of points
                 dofs = ['Tx', 'Tz', 'Ry']
                 deviationPartial2 = DataUtils.evaluateDeviation(
-                    pointsMeasured[1], pointsNominal[1], dofs)
+                    pointsMeasured[1], transfPoints, dofs)
 
                 # agregating parcial dofs
                 deviation = np.array(
@@ -316,7 +307,7 @@ class SR():
         return credentials
     
     @staticmethod
-    def createObjectsStructure(pointsDF, isMeasured=False, shiftsB1=None):
+    def createObjectsStructure(pointsDF, shiftsB1=None, isMeasured=False):
 
         girderDict = {}
 
@@ -338,20 +329,22 @@ class SR():
 
             magnetDict = girderDict[credentials['girder']]
 
+            # print(shiftsB1)
+
             # finding Magnet object or instantiating a new one
             if (credentials['magnetName'] in magnetDict):
                 # reference to the Magnet object
                 magnet = magnetDict[credentials['magnetName']]
                 # append point into its point list
                 magnet.addPoint(point)
-                if (shiftsB1):
-                    magnet.shift = shiftsB1['magnetName']
+                if (shiftsB1 and credentials['magnetType'] == 'dipole-B1'):
+                    magnet.shift = shiftsB1[credentials['magnetName']]
             else:
                 # instantiate new Magnet object
                 magnet = Magnet(credentials['magnetName'], credentials['magnetType'])
                 magnet.addPoint(point)
-                if (shiftsB1):
-                    magnet.shift = shiftsB1['magnetName']
+                if (shiftsB1 and credentials['magnetType'] == 'dipole-B1'):
+                    magnet.shift = shiftsB1[credentials['magnetName']]
 
                 # including on data structure
                 girderDict[credentials['girder']][credentials['magnetName']] = magnet
@@ -359,7 +352,6 @@ class SR():
         SR.reorderDict(girderDict)
 
         return girderDict
-
 
 class LTB():
     @staticmethod
@@ -381,7 +373,7 @@ class LTB():
         return (pointsMeasured, pointsNominal)
 
     @staticmethod
-    def calculateLocalDeviationsByTypeOfMagnet(magnet, pointList):
+    def calculateLocalDeviations(magnet, pointList):
         pointsMeasured = pointList[0]
         pointsNominal = pointList[1]
 
@@ -407,7 +399,7 @@ class LTB():
         details = pointName.split('-')
         prefix = details[0]
 
-        if (prefix[0] != 'P'):
+        if ('LTB' not in prefix):
             credentials["isLTB"] = False
             return credentials
 
@@ -418,7 +410,7 @@ class LTB():
         magnetName = details[0] + '-' + details[1]
         magnetRef = details[1]
 
-        if (magnetRef == 'QD' or magnetRef == 'QF'):
+        if ('QD' in magnetRef or 'QF' in magnetRef):
             magnetType = 'quadrupole'
         elif (magnetRef[0] == 'B'):
             magnetType = 'dipole-LTB'
@@ -494,7 +486,7 @@ class BTS():
         return (pointsMeasured, pointsNominal)
 
     @staticmethod
-    def calculateLocalDeviationsByTypeOfMagnet(magnet, pointList):
+    def calculateLocalDeviations(magnet, pointList):
         pointsMeasured = pointList[0]
         pointsNominal = pointList[1]
 
@@ -520,7 +512,7 @@ class BTS():
         details = pointName.split('-')
         prefix = details[0]
 
-        if (prefix[0] != 'BTS'):
+        if ('BTS' not in prefix):
             credentials["isBTS"] = False
             return credentials
 
@@ -585,6 +577,109 @@ class BTS():
 
         return transportDict
 
+class FE():
+    @staticmethod
+    def appendPoints(pointDict, transportDictNom, magnet, transport):
+        pointsMeasured = [[], []]
+        pointsNominal = [[], []]
 
+        for pointName in pointDict:
+            pointMeas = pointDict[pointName]
+            pointNom = transportDictNom[transport][magnet.name].pointDict[pointName]
+
+            pointMeasCoord = [pointMeas.x, pointMeas.y, pointMeas.z]
+            pointNomCoord = [pointNom.x, pointNom.y, pointNom.z]
+
+            # adicionando pontos às suas respectivas listas
+            pointsMeasured[0].append(pointMeasCoord)
+            pointsNominal[0].append(pointNomCoord)
+
+        return (pointsMeasured, pointsNominal)
+
+    @staticmethod
+    def calculateLocalDeviations(magnet, pointList):
+        pointsMeasured = pointList[0]
+        pointsNominal = pointList[1]
+
+        # no dof separation
+        dofs = ['Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz']
+        deviation = DataUtils.evaluateDeviation(pointsMeasured[0], pointsNominal[0], dofs)
+
+        frameFrom = magnet.name + '-NOMINAL'
+        frameTo = magnet.name + '-MEASURED'
+
+        localTransformation = Transformation(frameFrom, frameTo, deviation[0], deviation[1], deviation[2], deviation[3], deviation[4], deviation[5])
+
+        return localTransformation
+
+    @staticmethod
+    def generateCredentials(pointName):
+        credentials = {}
+        credentials["isFE"] = True
+        credentials["isValidPoint"] = True
+
+        details = pointName.split('-')
+        prefixes = ['MOG', 'EMA', 'CAR', 'CAT', 'MAN', 'IPE']
+        prefix = details[0]
+
+        if (prefix not in prefixes):
+            credentials["isFE"] = False
+            return credentials
+
+        if (len(details) != 3):
+            credentials["isValidPoint"] = False
+            return credentials
+
+        magnetName = details[0] + '-' + details[1]
+
+        # dummy magnet type, because this information isn't important for FE analysis
+        magnetType = 'generic'
+
+        credentials["prefix"] = prefix
+        credentials["magnetType"] = magnetType
+        credentials["pointName"] = pointName
+        credentials["magnetName"] = magnetName
+
+        return credentials
+
+    @staticmethod
+    def createObjectsStructure(pointsDF):
+
+        FEDict = {}
+
+        # iterate over dataframe
+        for pointName, coordinate in pointsDF.iterrows():
+
+            credentials = FE.generateCredentials(pointName)
+
+            if (not credentials['isFE'] or not credentials['isValidPoint']):
+                continue
+
+            # instantiating a Point object
+            point = Point(credentials['pointName'], coordinate['x'], coordinate['y'], coordinate['z'], 'machine-local')
+
+            # finding Girder object or instantiating a new one
+            if (not credentials['prefix'] in FEDict):
+                FEDict[credentials['prefix']] = {}
+
+            magnetDict = FEDict[credentials['prefix']]
+
+            # finding Magnet object or instantiating a new one
+            if (credentials['magnetName'] in magnetDict):
+                # reference to the Magnet object
+                magnet = magnetDict[credentials['magnetName']]
+                # append point into its point list
+                magnet.addPoint(point)
+            else:
+                # instantiate new Magnet object
+                magnet = Magnet(credentials['magnetName'], credentials['magnetType'])
+                magnet.addPoint(point)
+
+                # including on data structure
+                FEDict[credentials['prefix']][credentials['magnetName']] = magnet
+
+        # SR.reorderDict(girderDict)
+
+        return FEDict
 
 from dataUtils import DataUtils

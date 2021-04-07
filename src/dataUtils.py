@@ -1,11 +1,18 @@
 from numpy.core.numeric import NaN
 from entities import (Point, Frame, Transformation)
-from accelerators import (SR, Booster, LTB, BTS)
+from accelerators import (SR, Booster, LTB, BTS, FE)
 import pandas as pd
 import numpy as np
 import math
 from scipy.optimize import minimize
+
 import matplotlib.pyplot as plt
+import matplotlib.transforms as transforms
+from matplotlib.patches import Rectangle
+from matplotlib.lines import Line2D
+from matplotlib.ticker import FormatStrFormatter
+import matplotlib.offsetbox as offsetbox
+from matplotlib.transforms import Affine2D 
 
 
 class DataUtils():
@@ -79,7 +86,502 @@ class DataUtils():
         data.to_excel(fileDir)
 
     @staticmethod
-    def plotDevitationData(deviations, accelerator, isDofsFiltered):  # precisa adaptação pra booster
+    def plotDevitationData(deviations, **plotArgs):  # precisa adaptação pra booster
+        # pegando uma cópia do df original
+        plotData = deviations.copy()
+
+        accelerator = plotArgs['accelerator']
+
+        # applying filters
+        if(accelerator == 'SR' and plotArgs['filtering']['SR']['allDofs']):
+            for magnet, dof in plotData.iterrows():
+                if('B03-QUAD01' in magnet or 'B11-QUAD01' in magnet or ('QUAD' in magnet and not 'LONG' in magnet)):
+                    plotData.at[magnet, 'Tz'] = float('nan')
+                elif('B1-LONG' in magnet):
+                    plotData.at[magnet, 'Tx'] = float('nan')
+                    plotData.at[magnet, 'Ty'] = float('nan')
+                    plotData.at[magnet, 'Rx'] = float('nan')
+                    plotData.at[magnet, 'Ry'] = float('nan')
+                    plotData.at[magnet, 'Rz'] = float('nan')
+
+        if(accelerator == 'booster' and plotArgs['filtering']['booster']['quad02']):
+            for magnet, dof in plotData.iterrows():
+                if ('QUAD02' in magnet):
+                    plotData.at[magnet, :] = [float('nan'), float('nan'), float('nan'), float('nan'), float('nan'), float('nan')]
+
+        if (accelerator == 'SR'):
+            plotTitle = 'Global Alignment Profile - Storage Ring'
+            tolerances = [0.08, 0.08, 0.1, 0.3]
+            tick_spacing = 18.5
+            tick_id = 'Sector'
+            bins = [6,6,12,10]
+            x_extension = 2
+        elif (accelerator == 'booster'):
+            plotTitle = 'Global Alignment Profile - Booster'
+            tolerances = [0.16, 0.16, 0.4, 0.8]
+            tick_spacing = 5
+            tick_id = 'Wall'
+            bins = [10, 10, 6, 6]
+            x_extension = 2
+        elif (accelerator == 'LTB'):
+            plotTitle = 'Global Alignment Profile - LTB'
+            tolerances = [0.16, 0.16, 0.4, 0.8]
+            tick_spacing = 1
+            tick_id = 'Magnet'
+            bins = [10, 10, 6, 6]
+            x_extension = 1
+        elif (accelerator == 'BTS'):
+            plotTitle = 'Global Alignment Profile - BTS'
+            tolerances = [0.16, 0.16, 0.4, 0.8]
+            tick_spacing = 1
+            tick_id = 'Magnet'
+            bins = [10, 10, 6, 6]
+            x_extension = 1
+        elif (accelerator == 'FE'):
+            plotTitle = 'Global Alignment Profile - Front Ends'
+            tolerances = [0.16, 0.16, 0.4, 0.8]
+            tick_spacing = 1
+            tick_id = 'Magnet'
+            bins = [10, 10, 6, 6]
+            x_extension = 1
+
+        # tolerances_booster = [0.16, 0.16, 0.4, 0.8]
+        unc = [0.018, 0.043, 0.023, 0.026]
+
+        plot_args = {'y_list': ['Tx', 'Ty', 'Tz', 'Rz'], 'title_list': ['HORIZONTAL', 'VERTICAL', 'LONGITUDINAL', 'ROLL'], 'fig_title': plotTitle}
+
+        xAxisTitle = 'Magnet'
+
+        colum1_name = 'Tx'
+        df_colums_dict = {'Tx': 'deviation horiz. [mm]', 'Ty': 'deviation vert. [mm]', 'Tz': 'deviation long. [mm]', 'Rz': 'rotation roll [mrad]'}
+
+        # xAxisTicks = []
+        # for i in range(0, plotData.iloc[:, 0].size):
+        #     sector = int(i/17) + 1
+        #     xAxisTicks.append(str(sector))
+
+        """ configurando df """
+        new_index = np.linspace(
+            0, plotData[colum1_name].size-1, plotData[colum1_name].size)
+
+        magnetNameList = plotData.index.to_numpy()
+
+        # EXCLUINDO COLUNAS COM DOFS DESNECESSÁRIOS
+        plotData = plotData.drop(columns=['Rx', 'Ry'])
+
+        plotData['Index'] = new_index
+        plotData.insert(0, xAxisTitle, plotData.index)
+        plotData.set_index('Index', drop=True, inplace=True)
+        plotData.reset_index(drop=True, inplace=True)
+        plotData.rename(columns=df_colums_dict, inplace=True)
+
+        # invertendo sinal das translações transversais
+        # plotData["d_transv (mm)"] = -plotData["d_transv (mm)"]
+
+        """ configurando parâmetros do plot """
+        # definindo o numero de linhas e colunas do layout do plot
+        grid_subplot = [4, 2]
+        # grid_subplot = [2, 2]
+        # definindo se as absicissas serão compartilhadas ou não
+        share_xAxis = 'col'
+        # criando subplots com os parâmetros gerados acima
+
+        # fig = plt.figure(figsize=(18, 9))
+        fig = plt.figure()
+        fig.tight_layout()
+        # gs = fig.add_gridspec(4,2, **dict(hspace=0.3, wspace=0.1, width_ratios=[4,1]))
+        gs_dev = plt.GridSpec(4,2, top=0.9, hspace=0.3, wspace=0.2, width_ratios=[4,1])
+        gs_rot = plt.GridSpec(4,2, bottom=0.07, hspace=0.3, wspace=0.2, width_ratios=[4,1])
+        
+
+        axs_plot, axs_hist = [], []
+        axs_plot.append(fig.add_subplot(gs_dev[0,0]))
+        axs_plot.append(fig.add_subplot(gs_dev[1,0], sharex=axs_plot[0]))
+        axs_plot.append(fig.add_subplot(gs_dev[2,0], sharex=axs_plot[0]))
+        axs_plot.append(fig.add_subplot(gs_rot[3,0], sharex=axs_plot[0]))
+
+        axs_hist.append(fig.add_subplot(gs_dev[0,1]))
+        axs_hist.append(fig.add_subplot(gs_dev[1,1]))
+        axs_hist.append(fig.add_subplot(gs_dev[2,1]))
+        axs_hist.append(fig.add_subplot(gs_rot[3,1]))
+
+        # plot_dim = axs_hist[3].get_position().bounds
+
+        # for i in range(4):
+        #     axs_plot[i].set_position([plot_dim[0], plot_dim[1], plot_dim[2], 0.2*plot_dim[3]])
+        #     axs_hist[i].set_position([plot_dim[0], plot_dim[1], plot_dim[2], 0.2*plot_dim[3]])
+
+        # fig, axs = plt.subplots(grid_subplot[0], grid_subplot[1], figsize=(18, 9), sharex=share_xAxis, gridspec_kw=dict(hspace=0.3, wspace=0.1, width_ratios=[4,1]))
+
+        fontBaseSize = 7
+        fontScale = 1.2
+
+        # titulo da figura
+        bbox_props = dict(boxstyle="square,pad=0.5", fc="white", lw=0.5)
+        fig.suptitle(plot_args['fig_title'], y=0.97, color='black', weight='semibold', fontsize=fontScale*(fontBaseSize+6), bbox=bbox_props)
+        # fig.set_tight_layout(dict(pad=0))
+        # fig.subplots_adjust(left=0.08,bottom=0.08, right=0.88, top=0.88)
+        # fig.subplots_adjust(bottom=0.08)
+
+        spacing = int(plotData.iloc[:, 0].size/tick_spacing)
+        tickpos = np.linspace(0, plotData.iloc[:, 0].size - tick_spacing, spacing)
+        print(spacing, plotData.iloc[:, 0].size)
+
+        tickLabels = []
+        if (accelerator == 'SR'):
+            [tickLabels.append(f'{str(i+1)}') for i in range(0, len(tickpos))]
+            # tickLabels.append('')
+        elif (accelerator == 'booster'):
+            [tickLabels.append(f'{str(2*i+1)}') for i in range(0, len(tickpos))]
+            # tickLabels[-1] = ''
+
+        """salvando args de entrada"""
+        pallet = 3
+        
+        if (pallet == 1):
+            plot_colors = ['blue', 'orange', 'green', 'black']
+        elif (pallet == 2):
+            plot_colors = ['cornflowerblue', 'coral', 'forestgreen', 'black']
+        elif (pallet == 3):
+            plot_colors = ['royalblue', 'darkorange', 'seagreen', 'black']
+        
+        
+        # a lista de títulos é direta
+        plot_titles = plot_args['title_list']
+
+        # para a lista de colunas do df a serem plotadas, deve-se mapear a lista 'y_list' de entrada
+        # em relação ao dict 'df_colums_dict' para estar em conformidade com os novos nomes das colunas
+        y_list = []
+        for y in plot_args['y_list']:
+            if y in df_colums_dict:
+                y_list.append(df_colums_dict[y])
+
+        x = magnetNameList
+        y = []
+
+        for i in range(4):
+            y.append(plotData[y_list[i]].to_numpy()) 
+
+        for i in range(len(y)):
+            if (plotArgs['filtering'][accelerator]['errorbar']):
+                axs_plot[i].errorbar(x, y[i], yerr=unc[i], fmt='o', marker='o', ms=2, mec=plot_colors[i], mfc=plot_colors[i], color='wheat', ecolor='k', elinewidth=0.5, capthick=0.5, capsize=3)
+            else:
+                k=0
+                while (k < len(x)):
+                    currGirder = x[k].split('-')[0]+'-'+x[k].split('-')[1]
+                    try:
+                        nextGirder = x[k+1].split('-')[0]+'-'+x[k+1].split('-')[1]
+                    except IndexError:
+                        nextGirder = None
+                    if(currGirder == nextGirder):
+                        # Checking if user set to appear lines between magnets within the same girder
+                        if (plotArgs['filtering'][accelerator]['lineWithinGirder']):
+                            axs_plot[i].plot(x[k: k+2], y[i][k: k+2], 'o-', color=plot_colors[i], markersize=4)
+                            k+=2
+                        else:
+                            axs_plot[i].plot(x[k], y[i][k], 'o-', color=plot_colors[i], markersize=4)
+                            k+=1
+                    else:
+                        axs_plot[i].plot(x[k], y[i][k], 'o-', color=plot_colors[i], markersize=4)
+                        k+=1
+
+            if (i==3):
+                axs_plot[i].tick_params(axis='x', which='major', direction='in', bottom=True, top=False, labelrotation=45,labelsize=fontScale*(fontBaseSize+1))
+            else:
+                axs_plot[i].tick_params(axis='x', which='major', direction='in', bottom=True, top=False, labelbottom=False)
+
+            axs_plot[i].set_xticks(tickpos)
+
+            if (plotArgs['filtering'][accelerator]['reportMode']):
+                axs_plot[i].set_xticklabels(tickLabels)
+                if (i == 3):
+                    axs_plot[i].set_xlabel(tick_id, **dict(fontsize=fontScale*(fontBaseSize+1.5)))
+
+            if(i==3):
+                ylabel = 'Deviation [mrad]'
+            else:
+                ylabel = 'Deviation [mm]'
+                if (accelerator == 'SR'):
+                    axs_plot[i].set_yticks([-0.1, -0.05, 0, 0.05, 0.1])
+                    # axs_plot[i].set_yticklabels([-0.1, -0.5, 0, 0.5, 0.1])
+            
+            axs_plot[i].grid(b=True, axis='both', which='major', linestyle='--', alpha=0.5)
+
+            axs_plot[i].set_ylabel(ylabel, **dict(fontsize=fontScale*(fontBaseSize+1.5)))
+            axs_plot[i].xaxis.labelpad = 10
+
+            # axs_plot[i].set_ylim(-1.42*tolerances[i], 1.42*tolerances[i])
+            axs_plot[i].set_xlim(-x_extension, plotData.iloc[:, 0].size)
+
+            bbox_props = dict(boxstyle="square,pad=0.1", fc="white", lw=0)
+
+
+            axs_plot[i].set_title(plot_titles[i], y=0.92, bbox=bbox_props, **dict(fontsize=fontScale*(fontBaseSize+2), weight=600))
+
+            # CALCULATING STANDARD DEVIATION
+            stdDev = np.std(plotData.iloc[:,i+1])
+            # stdDevList.append(stdDev)
+            avg = np.mean(np.absolute(plotData.iloc[:,i+1]))
+            if (i != 3):
+                boxTxt = 'Mean Deviation: {:.2f} mm'.format(avg)
+            else:
+                boxTxt = 'Mean Deviation: {:.2f} mrad'.format(avg)
+
+            # translate_bbox = Affine2D().translate(0,4)
+
+            ob = offsetbox.AnchoredText(boxTxt, loc=1, pad=0.25, borderpad=0.3, prop=dict(fontsize=fontScale*(fontBaseSize+0.7)))
+            axs_plot[i].add_artist(ob)
+
+            # Plotting histogram
+            axs_hist[i].hist(y[i], bins[i], facecolor=plot_colors[i], ec='white')
+            axs_hist[i].set_xticks([-tolerances[i], -stdDev, stdDev, tolerances[i]])
+            
+            axs_hist[i].tick_params(axis='x', which='major', direction='in', bottom=True, top=False, labelrotation=45,labelsize=fontScale*fontBaseSize)
+            axs_hist[i].tick_params(axis='y', labelsize=fontScale*fontBaseSize)
+
+            xlim_init, xlim_end = axs_hist[i].get_xlim()
+            axs_hist[i].set_xlim(-1.5*tolerances[i], 1.5*tolerances[i])
+
+            axs_hist[i].xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+            axs_hist[i].yaxis.set_major_formatter(FormatStrFormatter('%d'))
+
+            # axs_hist[i].axvline(tolerances[i], color=tolerance_color, lw=1.6, alpha=0.6)
+            # axs_hist[i].axvline(-tolerances[i], color=tolerance_color, lw=1.6, alpha=0.6)
+            ylimits_hist = axs_hist[i].get_ylim()
+            x_filled = np.linspace(-tolerances[i], tolerances[i], 10)
+            axs_hist[i].fill_between(x_filled, 0, 2*ylimits_hist[1], color='green', alpha=0.06)
+            axs_hist[i].set_ylim(ylimits_hist)
+
+            if (i >= 2):
+                axs_hist[i].set_xlabel(ylabel, **dict(fontsize=fontScale*(fontBaseSize+1.5)))
+
+            axs_hist[i].set_ylabel('Occurrence', **dict(fontsize=fontScale*(fontBaseSize+1.5)))
+
+            x_filled = np.linspace(-5, len(x)+5, 10)
+            axs_plot[i].fill_between(x_filled, tolerances[i], -tolerances[i], color='green', alpha=0.06)
+
+        # plot dos histogramas p/ reunião sobre intervenção [temporário]
+        
+        # if (accelerator == 'SR'):
+        #     bins = [6,6,12,10]
+        #     title = 'Destribuição de Desvios - Anel de Armazenamento'
+        # else:
+        #     bins = [10, 10, 6, 6]
+        #     title = 'Destribuição de Desvios - Booster'
+
+        # fontBaseSize = 7
+        # fontScale = 1.5
+
+        # fig2, axs2 = plt.subplots(2,2, figsize=(12,8))
+        # for i in range(4):
+        #     axs2[i%2][int(i/2)].hist(y[i], bins[i], facecolor=plot_colors[i], ec='white')
+        #     axs2[i%2][int(i/2)].set_xticks([-tolerances[i], -stdDevList[i], stdDevList[i], tolerances[i]])
+        #     axs2[i%2][int(i/2)].axvline(tolerances[i], color=tolerance_color, lw=1.6, alpha=0.6)
+        #     axs2[i%2][int(i/2)].axvline(-tolerances[i], color=tolerance_color, lw=1.6, alpha=0.6)
+        #     axs2[i%2][int(i/2)].tick_params(axis='x', which='major', direction='in', bottom=True, top=False, labelrotation=45,labelsize=fontScale*fontBaseSize)
+        #     axs2[i%2][int(i/2)].tick_params(axis='y', labelsize=fontScale*fontBaseSize)
+        #     axs2[i%2][int(i/2)].set_title(plot_titles[i], **dict(fontsize=fontScale*(fontBaseSize+2), weight='semibold'))
+
+        #     xlim_init, xlim_end = axs2[i%2][int(i/2)].get_xlim()
+        #     axs2[i%2][int(i/2)].set_xlim(xlim_init - tolerances[i]/5.5, xlim_end + tolerances[i]/5.5)
+
+        #     axs2[i%2][int(i/2)].xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+        #     axs2[i%2][int(i/2)].yaxis.set_major_formatter(FormatStrFormatter('%d'))
+
+        #     mean = np.mean(plotData.iloc[:,i+1])
+        #     meanDev = np.mean(np.abs(plotData.iloc[:,i+1]))
+
+        #     if (i != 3):
+        #         xLabel = 'Desvio [mm]'
+        #         boxTxt = 'Média: {:.2f} mm\nDesvio médio: {:.2f} mm'.format(mean, meanDev)
+        #         boxTxt = 'Desvio médio: {:.2f} mm'.format(meanDev)
+        #     else:
+        #         xLabel = 'Desvio [mrad]'
+        #         boxTxt = 'Média: {:.2f} mrad\nDesvio médio: {:.2f} mrad'.format(mean, meanDev)
+        #         boxTxt = 'Desvio médio: {:.2f} mrad'.format(meanDev)
+
+        #     axs2[i%2][int(i/2)].set_xlabel(xLabel, **dict(fontsize=fontScale*(fontBaseSize+1.5)))
+        #     axs2[i%2][int(i/2)].set_ylabel('Ocorrência', **dict(fontsize=fontScale*(fontBaseSize+1.5)))
+
+        #     ob = offsetbox.AnchoredText(boxTxt, loc=1, prop=dict(fontsize=fontScale*(fontBaseSize-0.5)))
+        #     axs2[i%2][int(i/2)].add_artist(ob)
+
+        # fig2.suptitle(title, fontsize=fontScale*(fontBaseSize*2), weight='bold')
+        # fig2.subplots_adjust(wspace=0.3, hspace=0.45)
+
+        plt.get_current_fig_manager().window.showMaximized()
+
+        # acrescentando intervalo entre plots
+        plt.draw()
+        plt.pause(0.001)
+
+        # condicional para definir se a figura irá congelar o andamento do app
+        # usado no ultimo plot, pois senão as janelas fecharão assim que o app acabar de executar
+        plt.ioff()
+
+        # evocando a tela com a figura
+        plt.show()
+
+    @staticmethod
+    def plotComparativeDeviation(deviations, **plotArgs):  # precisa adaptação pra booster
+        # pegando uma cópia do df original
+        plotData = deviations.copy()
+
+        accelerator = plotArgs['accelerator']
+        lenghts = plotArgs['len']
+
+        # applying filters
+        for magnet, dof in plotData.iterrows():
+            if('B03-QUAD01' in magnet or 'B11-QUAD01' in magnet or ('QUAD' in magnet and not 'LONG' in magnet)):
+                plotData.at[magnet, 'Tz'] = float('nan')
+            elif('B1-LONG' in magnet):
+                plotData.at[magnet, 'Tx'] = float('nan')
+                plotData.at[magnet, 'Ty'] = float('nan')
+                plotData.at[magnet, 'Rx'] = float('nan')
+                plotData.at[magnet, 'Ry'] = float('nan')
+                plotData.at[magnet, 'Rz'] = float('nan')
+
+        for magnet, dof in plotData.iterrows():
+            if ('P' in magnet and 'QUAD02' in magnet):
+                plotData.at[magnet, :] = [float('nan'), float('nan'), float('nan'), float('nan'), float('nan'), float('nan')]
+
+        plotTitle = 'Global Alignment Profile'
+        tolerances = [0.16, 0.16, 0.4, 0.8]
+        tick_spacing = 17
+        x_extension = 2
+        unc = [0.018, 0.043, 0.023, 0.026]
+
+        plot_args = {'y_list': ['Tx', 'Ty', 'Tz', 'Rz'], 'title_list': ['HORIZONTAL', 'VERTICAL', 'LONGITUDINAL', 'ROLL'], 'fig_title': plotTitle}
+
+        xAxisTitle = 'Magnet'
+
+        colum1_name = 'Tx'
+        df_colums_dict = {
+            'Tx': 'deviation horiz. [mm]', 'Ty': 'deviation vert. [mm]', 'Tz': 'deviation long. [mm]', 'Rz': 'rotation roll [mrad]'}
+
+        """ configurando df """
+        new_index = np.linspace(0, plotData[colum1_name].size-1, plotData[colum1_name].size)
+
+        magnetNameList = plotData.index.to_numpy()
+
+        # EXCLUINDO COLUNAS COM DOFS DESNECESSÁRIOS
+        plotData = plotData.drop(columns=['Rx', 'Ry'])
+
+        plotData['Index'] = new_index
+        plotData.insert(0, xAxisTitle, plotData.index)
+        plotData.set_index('Index', drop=True, inplace=True)
+        plotData.reset_index(drop=True, inplace=True)
+        plotData.rename(columns=df_colums_dict, inplace=True)
+
+        fig = plt.figure()
+        fig.tight_layout()
+
+        gs_dev = plt.GridSpec(4,1, top=0.9, hspace=0.3)
+        
+        axs_plot = []
+        axs_plot.append(fig.add_subplot(gs_dev[0]))
+        axs_plot.append(fig.add_subplot(gs_dev[1], sharex=axs_plot[0]))
+        axs_plot.append(fig.add_subplot(gs_dev[2], sharex=axs_plot[0]))
+        axs_plot.append(fig.add_subplot(gs_dev[3], sharex=axs_plot[0]))
+
+        fontBaseSize = 7
+        fontScale = 1.2
+
+        # titulo da figura
+        bbox_props = dict(boxstyle="square,pad=0.5", fc="white", lw=0.5)
+        fig.suptitle(plot_args['fig_title'], y=0.97, color='black', weight='semibold', fontsize=fontScale*(fontBaseSize+6), bbox=bbox_props)
+
+
+        tickpos = np.linspace(0, plotData.iloc[:, 0].size, int(plotData.iloc[:, 0].size/tick_spacing))
+
+        tickLabels = []
+        [tickLabels.append(f'{str(i+1)}') for i in range(0, len(tickpos)-1)]
+
+
+        """salvando args de entrada"""
+        plot_colors = ['royalblue', 'darkorange', 'seagreen', 'black']
+        
+        
+        # a lista de títulos é direta
+        plot_titles = plot_args['title_list']
+
+        # para a lista de colunas do df a serem plotadas, deve-se mapear a lista 'y_list' de entrada
+        # em relação ao dict 'df_colums_dict' para estar em conformidade com os novos nomes das colunas
+        y_list = []
+        for y in plot_args['y_list']:
+            if y in df_colums_dict:
+                y_list.append(df_colums_dict[y])
+
+        x = magnetNameList
+        y = []
+
+        for i in range(4):
+            y.append(plotData[y_list[i]].to_numpy()) 
+
+        for i in range(len(y)):
+            if (plotArgs['filtering'][accelerator]['errorbar']):
+                axs_plot[i].errorbar(x, y[i], yerr=unc[i], fmt='o', marker='o', ms=2, mec=plot_colors[i], mfc=plot_colors[i], color='wheat', ecolor='k', elinewidth=0.5, capthick=0.5, capsize=3)
+            else:
+                axs_plot[i].plot(x, y[i], 'o', color=plot_colors[i], ms=2)
+
+            axs_plot[i].set_xticks(tickpos)
+            axs_plot[i].set_xticklabels(tickLabels)
+                    
+            if(i==3):
+                ylabel = 'Deviation [mrad]'
+            else:
+                ylabel = 'Deviation [mm]'
+
+            axs_plot[i].tick_params(axis='x', which='major', direction='in', bottom=True, top=False, labelbottom=False)
+
+            
+            axs_plot[i].grid(b=True, axis='both', which='major', linestyle='--', alpha=0.5)
+
+            axs_plot[i].set_ylabel(ylabel, **dict(fontsize=fontScale*(fontBaseSize+1.5)))
+            axs_plot[i].xaxis.labelpad = 10
+
+            axs_plot[i].set_ylim(-1.42*tolerances[i], 1.42*tolerances[i])
+            axs_plot[i].set_xlim(-x_extension, plotData.iloc[:, 0].size)
+
+            bbox_props = dict(boxstyle="square,pad=0.1", fc="white", lw=0)
+            axs_plot[i].set_title(plot_titles[i], y=0.92, bbox=bbox_props, **dict(fontsize=fontScale*(fontBaseSize+2), weight=600))
+
+            axs_plot[i].axvline(x=lenghts[0], color='firebrick', lw='1')
+            axs_plot[i].axvline(x=lenghts[1], color='firebrick', lw='1')
+            axs_plot[i].axvline(x=lenghts[2], color='firebrick', lw='1')
+
+        axs_plot[0].text(lenghts[0]/2 - 5, 0.16, 'LTB', weight=500, bbox=dict(boxstyle="square,pad=0.3", fc="white", ec="black", lw=0.7))
+        axs_plot[0].text(lenghts[0] + (lenghts[1]-lenghts[0])/2 - 8, 0.16, 'Booster', weight=500, bbox=dict(boxstyle="square,pad=0.3", fc="white", ec="black", lw=0.7))
+        axs_plot[0].text(lenghts[1] + (lenghts[2]-lenghts[1])/2 - 5, 0.16, 'BTS', weight=500, bbox=dict(boxstyle="square,pad=0.3", fc="white", ec="black", lw=0.7))
+        axs_plot[0].text(lenghts[2] + (len(x)-lenghts[2])/2 - 10, 0.16, 'Storage Ring', weight=500, bbox=dict(boxstyle="square,pad=0.3", fc="white", ec="black", lw=0.7))
+
+        
+        # axs_plot[0].annotate('Booster', xy=(1/8, 0.90), xytext=(1/8, 0.9), xycoords='axes fraction',
+        #     fontsize=fontScale*(fontBaseSize+2), ha='center', va='bottom',
+        #     bbox=dict(boxstyle='square', fc='white'),
+        #     arrowprops=dict(arrowstyle='-[, widthB=14, lengthB=1.5', lw=1.0))
+
+        # axs_plot[0].annotate('Storage Ring', xy=(5/8, 0.90), xytext=(5/8, 0.9), xycoords='axes fraction', 
+        #     fontsize=fontScale*(fontBaseSize+2), ha='center', va='bottom',
+        #     bbox=dict(boxstyle='square', fc='white'),
+        #     arrowprops=dict(arrowstyle='-[, widthB=14.0, lengthB=1.5', lw=1.0))
+
+
+        plt.get_current_fig_manager().window.showMaximized()
+
+        # acrescentando intervalo entre plots
+        plt.draw()
+        plt.pause(0.001)
+
+        # condicional para definir se a figura irá congelar o andamento do app
+        # usado no ultimo plot, pois senão as janelas fecharão assim que o app acabar de executar
+        plt.ioff()
+
+        # evocando a tela com a figura
+        plt.show()
+
+    @staticmethod
+    def plotRelativeDevitationData(deviations, accelerator):  # precisa adaptação pra booster
         # pegando uma cópia do df original
         plotData = deviations.copy()
 
@@ -154,8 +656,9 @@ class DataUtils():
             0, plotData.iloc[:, 0].size, int(plotData.iloc[:, 0].size/17))
 
         tickLabels = []
-        # [tickLabels.append(str(i)) for i in range(0, len(tickpos))]
-        [tickLabels.append(magnetNameList[i]) for i in range(0, len(tickpos))]
+        
+        # [tickLabels.append(magnetNameList[i].split('-')[0]) for i in range(0, len(tickpos))]
+        [tickLabels.append('test'+str(i)) for i in range(0, len(tickpos))]
 
         """salvando args de entrada"""
         plot_colors = ['red', 'limegreen', 'blue', 'purple', 'green', 'black']
@@ -172,26 +675,6 @@ class DataUtils():
             if y in df_colums_dict:
                 y_list.append(df_colums_dict[y])
 
-        # for i in range(len(y_list)):
-        #     .plot.scatter(
-        #         xAxisTitle, y_list[i], c=plot_colors[i], ax=axs[i % 3][int(i/3)], title=plot_titles[i])
-
-        #     axs[i % 3][int(i/3)].tick_params(axis='x', which='major', direction='in', bottom=True, top=True, labelrotation=45,
-        #                                      labelsize=5)
-        #     axs[i % 3][int(i/3)].set_xticks(tickpos)
-        #     # axs[i % 3][int(i/3)].set_xticklabels(tickLabels)
-        #     axs[i % 3][int(i/3)].xaxis.labelpad = 10
-        #     axs[i % 3][int(i/3)].grid(b=True, axis='both',
-        #                               which='major', linestyle='--', alpha=0.5)
-
-        #     axs[i % 3][int(i/3)].axhline(tolerances[i], color='red', lw=1.5, alpha=0.4)
-        #     axs[i % 3][int(i/3)].axhline(-tolerances[i], color='red', lw=1.5, alpha=0.4)
-
-        #     ylim_bottom, ylim_top = axs[i % 3][int(i/3)].get_ylim()
-        #     axs[i % 3][int(i/3)].set_ylim(ylim_bottom - verticalSpacing, ylim_top + verticalSpacing)
-
-        #     axs[i % 3][int(i/3)].set_xlim(0, plotData.iloc[:, 0].size)
-
         x = magnetNameList
         y = []
 
@@ -201,9 +684,9 @@ class DataUtils():
         for i in range(len(y)):
             k=0
             while (k < len(x)):
-                currGirder = x[k].split('-')[0]+'-'+x[k].split('-')[2]
+                currGirder = x[k].split('-')[0]+'-'+x[k].split('-')[1]
                 try:
-                    nextGirder = x[k+1].split('-')[0]+'-'+x[k+1].split('-')[2]
+                    nextGirder = x[k+1].split('-')[0]+'-'+x[k+1].split('-')[1]
                 except IndexError:
                     nextGirder = None
                 if(currGirder == nextGirder):
@@ -218,7 +701,7 @@ class DataUtils():
             axs[i % 3][int(i/3)].tick_params(axis='x', which='major', direction='in', bottom=True, top=True, labelrotation=45,
                                              labelsize=5)
             axs[i % 3][int(i/3)].set_xticks(tickpos)
-            # axs[i % 3][int(i/3)].set_xticklabels(tickLabels)
+            axs[i % 3][int(i/3)].set_xticklabels(tickLabels)
             axs[i % 3][int(i/3)].xaxis.labelpad = 10
             axs[i % 3][int(i/3)].grid(b=True, axis='both',
                                       which='major', linestyle='--', alpha=0.5)
@@ -263,10 +746,6 @@ class DataUtils():
             for magnetName in magnetDict:
                 magnet = magnetDict[magnetName]
                 targetFrame = magnetName + "-NOMINAL"
-
-                # error = magnet.transformFrame(frameDict, targetFrame)
-                # if(error):
-                #     magnetsNotComputed += magnet.name + ','
                 try:
                     magnet.transformFrame(frameDict, targetFrame)
                 except KeyError:
@@ -420,29 +899,28 @@ class DataUtils():
         with open('../data/output/anel-novos_pontos.txt', 'w') as f:
             f.write(output)
 
-
     @staticmethod
-    def printDictData(objectDict, mode='console'):
+    def printDictData(objectDict, mode='console', fileName='dataDict'):
         output = ""
         for objectName in objectDict:
             output += objectName + '\n'
             magnetDict = objectDict[objectName]
             for magnet in magnetDict:
                 pointDict = magnetDict[magnet].pointDict
-                shift = magnetDict[magnet].shift
+                # shift = magnetDict[magnet].shift
                 output += '\t'+magnet+'\n'
-                output += '\t\tshift: '+str(shift)+'\n'
-                output += '\t\t\tpointlist:\n'
+                # output += '\t\tshift: '+str(shift)+'\n'
+                output += '\t\tpointlist:\n'
                 for point in pointDict:
                     pt = pointDict[point]
-                    output += '\t\t\t\t' + pt.name + ' ' + \
+                    output += '\t\t\t' + pt.name + ' ' + \
                         str(pt.x) + ' ' + str(pt.y) + \
                         ' ' + str(pt.z) + '\n'
 
         if (mode == 'console'):
             print(output)
         else:
-            with open('../data/output/dataDict.txt', 'w') as f:
+            with open(f'../data/output/{fileName}.txt', 'w') as f:
                 f.write(output)
 
     @staticmethod
@@ -469,15 +947,12 @@ class DataUtils():
             for i in range(len(splitedFrameName) - 1):
                 magnetName += (splitedFrameName[i]+'-')
 
-            frameFrom = magnetName + 'NOMINAL'
-            frameTo = magnetName + 'MEASURED'
+            frameFrom = magnetName + 'MEASURED'
+            frameTo = magnetName + 'NOMINAL'
 
             try:
-                transformation = Transformation.evaluateTransformation(
-                    frameDict, frameFrom, frameTo)
-
-                dev = Transformation.individualDeviationsFromEquations(
-                transformation)
+                transformation = Transformation.evaluateTransformation(frameDict, frameFrom, frameTo)
+                dev = Transformation.individualDeviationsFromEquations(transformation)
             except KeyError:
                 dev = [float('nan'), float('nan'), float('nan'), float('nan'), float('nan'), float('nan')]
                 pass
@@ -489,6 +964,37 @@ class DataUtils():
 
         deviations = pd.concat(deviationList, ignore_index=True)
         deviations = deviations.set_index(header[0])
+
+        # retorna o df com os termos no tipo numérico certo
+        return deviations.astype('float32')
+
+    @staticmethod
+    def calculateMagnetsRelativeDeviations(deviationDF):
+        relDev = deviationDF.copy()
+        relDevList = []
+
+        k = 0
+
+        while k < len(relDev.iloc[:,0]):
+            currGirder = relDev[k].split('-')[0] + '-' + relDev[k].split('-')[1]
+
+            try:
+                nextGirder = relDev[k+1].split('-')[0] + '-' + relDev[k+1].split('-')[1]
+            except IndexError:
+                nextGirder = None
+            
+            if(currGirder == nextGirder):
+                k += 2
+                continue
+            elif (nextGirder):
+                diff = [(relDev.at[k+1, 'Tx'] - relDev.at[k, 'Tx']), (relDev.at[k+1, 'Ty'] - relDev.at[k, 'Ty'])]
+                deviation = pd.DataFrame([diff], columns=['Magnet', 'Tx', 'Ty'])
+                relDevList.append(deviation)
+            
+            k += 1
+
+        deviations = pd.concat(relDevList, ignore_index=True)
+        deviations = deviations.set_index('Magnet')
 
         # retorna o df com os termos no tipo numérico certo
         return deviations.astype('float32')
@@ -631,7 +1137,7 @@ class DataUtils():
         params = np.zeros(len(dofs))
 
         # aplicando a operação de minimização para achar os parâmetros de transformação
-        deviation = minimize(fun=DataUtils.calculateEuclidianDistance, x0=params, args=(ptsMeas, ptsRef, dofs),
+        deviation = minimize(fun=DataUtils.calculateEuclidianDistance, x0=params, args=(ptsMeas, ptsRef, dofs),\
                              method='SLSQP', options={'ftol': 1e-10, 'disp': False})['x']
 
         # invertendo o sinal do resultado p/ adequação
@@ -640,68 +1146,55 @@ class DataUtils():
         return deviation
 
     @staticmethod
-    def generateMeasuredFrames(typeOfMagnets, objectDictMeas, objectDictNom, frameDict, accelerator, ui):
-
+    def generateMeasuredFrames(objectDictMeas, objectDictNom, frameDict, accelerator, ui, typeOfMagnets='', isTypeOfMagnetsIgnored=True):
         for objectName in objectDictMeas:
-
             magnetDict = objectDictMeas[objectName]
-
-            # print(magnetDict)
-
             for magnetName in magnetDict:
                 magnet = magnetDict[magnetName]
                 pointDict = magnet.pointDict
 
-                if (magnet.type == typeOfMagnets):
+                if (magnet.type == typeOfMagnets or isTypeOfMagnetsIgnored):
                     if (accelerator == 'SR'):
                         # creating lists for measured and nominal points
                         try:
-                            pointList = SR.appendPoints(
-                                pointDict, objectDictNom, magnet, objectName)
+                            pointList = SR.appendPoints(pointDict, objectDictNom, magnet, objectName)
                         except KeyError:
                             ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity="danger")
                             continue
-
                         # calculating the transformation from the nominal points to the measured ones
                         try:
-                            localTransformation = SR.calculateLocalDeviationsByTypeOfMagnet(
-                                magnet, objectName, pointDict, frameDict, pointList)
+                            localTransformation = SR.calculateLocalDeviationsByTypeOfMagnet(magnet, objectName, pointDict, frameDict, pointList)
                         except KeyError:
                             ui.logMessage('Falha no imã ' + magnet.name +': frame medido do quadrupolo adjacente ainda não foi calculado.', severity='danger')
                             continue
                     elif (accelerator == 'booster'):
                         try:
-                            pointList = Booster.appendPoints(
-                                pointDict, objectDictNom, magnet, objectName)
+                            pointList = Booster.appendPoints(pointDict, objectDictNom, magnet, objectName)
+                            localTransformation = Booster.calculateLocalDeviations(magnet, pointList)
                         except KeyError:
                             ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity='danger')
                             continue
-
-                        localTransformation = Booster.calculateLocalDeviationsByTypeOfMagnet(
-                            magnet, pointList)
-
                     elif (accelerator == 'LTB'):
                         try:
-                            pointList = LTB.appendPoints(
-                                pointDict, objectDictNom, magnet, objectName)
+                            pointList = LTB.appendPoints(pointDict, objectDictNom, magnet, objectName)
+                            localTransformation = LTB.calculateLocalDeviations(magnet, pointList)
                         except KeyError:
                             ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity='danger')
                             continue
-
-                        localTransformation = LTB.calculateLocalDeviationsByTypeOfMagnet(
-                            magnet, pointList)
-                    
                     elif (accelerator == 'BTS'):
                         try:
-                            pointList = BTS.appendPoints(
-                                pointDict, objectDictNom, magnet, objectName)
+                            pointList = BTS.appendPoints(pointDict, objectDictNom, magnet, objectName)
+                            localTransformation = BTS.calculateLocalDeviations(magnet, pointList)
                         except KeyError:
                             ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity='danger')
                             continue
-
-                        localTransformation = BTS.calculateLocalDeviationsByTypeOfMagnet(
-                            magnet, pointList)
-
+                    elif (accelerator == 'FE'):
+                        try:
+                            pointList = FE.appendPoints(pointDict, objectDictNom, magnet, objectName)
+                            localTransformation = FE.calculateLocalDeviations(magnet, pointList)
+                        except KeyError:
+                            ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity='danger')
+                            continue
                     try:
                         # referencing the transformation from the frame of nominal magnet to the machine-local
                         baseTransformation = frameDict[localTransformation.frameFrom].transformation
@@ -713,19 +1206,19 @@ class DataUtils():
                     transfMatrix = baseTransformation.transfMatrix @ localTransformation.transfMatrix
 
                     # updating the homogeneous matrix and frameFrom of the already created Transformation
-                    localTransformation.transfMatrix = transfMatrix
-                    localTransformation.frameFrom = 'machine-local'
+                    transformation = localTransformation
+                    transformation.transfMatrix = transfMatrix
+                    transformation.frameFrom = 'machine-local'
 
-                    localTransformation.Tx = transfMatrix[0, 3]
-                    localTransformation.Ty = transfMatrix[1, 3]
-                    localTransformation.Tz = transfMatrix[2, 3]
-                    localTransformation.Rx = baseTransformation.Rx + localTransformation.Rx
-                    localTransformation.Ry = baseTransformation.Ry + localTransformation.Ry
-                    localTransformation.Rz = baseTransformation.Rz + localTransformation.Rz
+                    transformation.Tx = transfMatrix[0, 3]
+                    transformation.Ty = transfMatrix[1, 3]
+                    transformation.Tz = transfMatrix[2, 3]
+                    transformation.Rx = baseTransformation.Rx + localTransformation.Rx
+                    transformation.Ry = baseTransformation.Ry + localTransformation.Ry
+                    transformation.Rz = baseTransformation.Rz + localTransformation.Rz
 
                     # creating a new Frame with the transformation from the measured magnet to machine-local
-                    measMagnetFrame = Frame(
-                        localTransformation.frameTo, localTransformation)
+                    measMagnetFrame = Frame(transformation.frameTo, transformation)
 
                     # adding it to the frame dictionary
                     frameDict[measMagnetFrame.name] = measMagnetFrame
@@ -792,30 +1285,61 @@ class DataUtils():
         return distances.astype('float32')
 
     @staticmethod
-    def generateReport(frameDict, accelerator):
-        computedMagnets = []
-        missingMagnets = []
+    def generateReport2(frameDict, accelerator):
+        computedMagnets = ''
+        missingMagnets = ''
 
         for frameName in frameDict:
             frame = frameDict[frameName]
-
 
             if ('MEASURED' in frame.name or frame.name == 'machine-local'):
                 continue
             
             if (accelerator == 'SR'):
-                magnetName = frame.name.split('-')[0] + '-' + frame.name.split('-')[1] + '-' + frame.name.split('-')[2]
+                try:
+                    magnetName = frame.name.split('-')[0] + '-' + frame.name.split('-')[1] + '-' + frame.name.split('-')[2]+ '-' + frame.name.split('-')[3]+'\n'
+                except IndexError:
+                    magnetName = frame.name.split('-')[0] + '-' + frame.name.split('-')[1] + '-' + frame.name.split('-')[2]+'\n'
             else:
-                magnetName = frame.name.split('-')[0] + '-' + frame.name.split('-')[1]
-
-            measuredFrame = magnetName + '-' + 'MEASURED'
+                magnetName = frame.name.split('-')[0] + '-' + frame.name.split('-')[1]+'\n'
+            
+            measuredFrame = magnetName[:-1] + '-' + 'MEASURED'
 
             if (not measuredFrame in frameDict):
-                missingMagnets.append(magnetName)
+                missingMagnets += magnetName
             else:
-                computedMagnets.append(magnetName)
+                computedMagnets += magnetName
 
         report = f'IMÃS FALTANTES\n {missingMagnets}\n\nIMÃS JÁ COMPUTADOS\n {computedMagnets}'
         
         return report
 
+    @staticmethod
+    def generateReport(frameDict, accelerator):
+        computedMagnets = ''
+        missingMagnets = ''
+
+        for frameName in frameDict:
+            frame = frameDict[frameName]
+
+            if ('MEASURED' in frame.name or frame.name == 'machine-local'):
+                continue
+            
+            nameParts = []
+            [nameParts.append(frame.name.split('-')[i]) for i in range (len(frame.name.split('-')) - 1)]
+
+            magnetName = ''
+            for name in nameParts:
+                magnetName +=  f'-{name}'
+
+            magnetName = magnetName[1:]
+            measuredFrame = magnetName + '-MEASURED'
+
+            if (not measuredFrame in frameDict):
+                missingMagnets += f'{magnetName}\n'
+            else:
+                computedMagnets += f'{magnetName}\n'
+
+        report = f'IMÃS FALTANTES\n {missingMagnets}\n\nIMÃS JÁ COMPUTADOS\n {computedMagnets}'
+        
+        return report
