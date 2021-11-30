@@ -9,6 +9,7 @@ class Point(object):
         self.x = x
         self.y = y
         self.z = z
+        self.coords = [self.x, self.y, self.z]
         self.frameName = frame
 
     @classmethod
@@ -29,7 +30,20 @@ class Point(object):
         self.y = transformedPoint[1, 0]
         self.z = transformedPoint[2, 0]
 
+        self.coords = [self.x, self.y, self.z]
+
         self.frameName = newFrameName
+
+    def changeFrame(self, frameDict, targetFrame):
+
+        # extracting the name of the initial frame
+        initialFrame = self.frameName
+
+        # evaluating transformation
+        transformation = Transformation.evaluateTransformation(frameDict, initialFrame, targetFrame)
+
+        # transform itself
+        self.transform(transformation, targetFrame)
 
 
 class Frame(object):

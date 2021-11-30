@@ -76,22 +76,7 @@ class Ui(QtWidgets.QMainWindow):
 
         # Show the screen
         self.show()
-
-    def runDebugFunctions(self):
-        self.loadEnv()
-
-        # creating frame's dict for the particular accelerator
-        self.app.frameDict['SR'] = DataUtils.generateFrameDict(self.app.lookupTable['SR'])
-
-        entitiesDictNom = SR.createObjectsStructure(self.app.nominals['SR'])
-
-        self.app.entitiesDictNom['SR'] = entitiesDictNom
-
-        DataUtils.debug_transformToLocalFrame(
-            self.app.entitiesDictNom['SR'], self.app.frameDict['SR'], 'SR')
-
-        DataUtils.debug_translatePoints(self.app.entitiesDictNom['SR'], self.app.frameDict['SR'])
-
+        
     def createEventListeners(self):
         # toolbar actions
         self.actionNom_SR.triggered.connect(partial(self.loadNominalsFile, 'SR'))
@@ -127,19 +112,38 @@ class Ui(QtWidgets.QMainWindow):
         self.reportProgress_booster.clicked.connect(partial(self.showReportPopup, 'booster'))
         self.reportProgress_SR.clicked.connect(partial(self.showReportPopup, 'SR'))
         
-        # self.expMachModel.clicked.connect(self.exportMachineModel)
+        self.expLongDist_SR.clicked.connect(partial(self.exportLongitudinalDistances, 'SR'))
+        self.expAbsolute_SR.clicked.connect(partial(self.exportAbsoluteDeviations, 'SR'))
+        # DataUtils.debug_translatePoints(self.app.entitiesDictNom['SR'], self.app.frameDict['SR'])
 
-    # def exportMachineModel(self):
-    #     distancesNom = Analysis.generateLongitudinalDistances(
-    #         self.app.entitiesDictNom)
+    def runDebugFunctions(self):
+        self.loadEnv()
 
-    #     distancesMeas = Analysis.generateLongitudinalDistances(
-    #         self.app.entitiesDictMeas)
+        # creating frame's dict for the particular accelerator
+        self.app.frameDict['SR'] = DataUtils.generateFrameDict(self.app.lookupTable['SR'])
 
-    #     DataUtils.writeToExcel(
-    #         "../data/output/distances-measured.xlsx", distancesNom)
-    #     DataUtils.writeToExcel(
-    #         "../data/output/distances-nominal.xlsx", distancesMeas)
+        entitiesDictNom = SR.createObjectsStructure(self.app.nominals['SR'])
+
+        self.app.entitiesDictNom['SR'] = entitiesDictNom
+
+        DataUtils.debug_transformToLocalFrame(
+            self.app.entitiesDictNom['SR'], self.app.frameDict['SR'], 'SR')
+
+    def exportLongitudinalDistances(self, accelerator):
+        longDistMeas = DataUtils.calculateMagnetsDistances(self.app.frameDict[accelerator], 'measured')
+        longDistNom = DataUtils.calculateMagnetsDistances(self.app.frameDict[accelerator], 'nominal')
+
+        DataUtils.writeToExcel("../data/output/distances-measured.xlsx", longDistMeas, accelerator)
+        DataUtils.writeToExcel("../data/output/distances-nominal.xlsx", longDistNom, accelerator)
+
+    def exportAbsoluteDeviations(self, accelerator):
+        # checando se todos os arquivos foram devidamente carregados
+        if(not self.app.isNominalsLoaded[accelerator] or not self.app.isMeasuredLoaded[accelerator] or not self.app.isLookuptableLoaded[accelerator]):
+            self.logMessage("Erro ao plotar gráfico: nem todos os arquivos foram carregados")
+            return
+
+        magnetsDeviations = DataUtils.calculateMagnetsDeviations(self.app.frameDict[accelerator])
+        DataUtils.writeToExcel(f"../data/output/deviations-{accelerator}.xlsx", magnetsDeviations, accelerator)
 
     def logMessage(self, message, severity='normal'):
         
@@ -411,12 +415,16 @@ class Ui(QtWidgets.QMainWindow):
 
         self.app.report[accelerator] = DataUtils.generateReport(self.app.frameDict[accelerator], accelerator)
 
+        # DataUtils.printFrameDict(self.app.frameDict[accelerator])
+        DataUtils.printDictData(self.app.entitiesDictMeas[accelerator])
+
         # habilita botões de plot
         if(accelerator == 'SR'):
             self.plotAbsolute_SR.setEnabled(True)
             self.expAbsolute_SR.setEnabled(True)
-            self.expMachModel_SR.setEnabled(True)
+            # self.expMachModel_SR.setEnabled(True)
             self.reportProgress_SR.setEnabled(True)
+            self.expLongDist_SR.setEnabled(True)
         elif (accelerator == 'booster'):
             self.plotAbsolute_booster.setEnabled(True)
             self.expAbsolute_booster.setEnabled(True)
@@ -437,27 +445,12 @@ class Ui(QtWidgets.QMainWindow):
             for magnetType in typesOfMagnets:
                 DataUtils.generateMeasuredFrames(self.app.entitiesDictMeas[accelerator], self.app.entitiesDictNom[accelerator],\
                                                 self.app.frameDict[accelerator], 'SR', self, typeOfMagnets=magnetType, isTypeOfMagnetsIgnored=False)
-            return
-
-        if (accelerator == 'booster'):
+        else:
             DataUtils.generateMeasuredFrames(self.app.entitiesDictMeas[accelerator], self.app.entitiesDictNom[accelerator],\
-                                             self.app.frameDict[accelerator], 'booster', self)
-            return
+                                             self.app.frameDict[accelerator], accelerator, self)
+        return
         
-        if (accelerator == 'LTB'):
-            DataUtils.generateMeasuredFrames(self.app.entitiesDictMeas[accelerator], self.app.entitiesDictNom[accelerator],\
-                                             self.app.frameDict[accelerator], 'LTB', self)
-            return
-
-        if (accelerator == 'BTS'):
-            DataUtils.generateMeasuredFrames(self.app.entitiesDictMeas[accelerator], self.app.entitiesDictNom[accelerator],\
-                                             self.app.frameDict[accelerator], 'BTS', self)
-            return
-
-        if (accelerator == 'FE'):
-            DataUtils.generateMeasuredFrames(self.app.entitiesDictMeas[accelerator], self.app.entitiesDictNom[accelerator],\
-                                             self.app.frameDict[accelerator], 'FE', self)
-            return
+        
 
     def plotAbsolute(self, accelerator):
         self.logMessage("Plotando o perfil de alinhamento absoluto do "+accelerator+"...")
@@ -468,7 +461,23 @@ class Ui(QtWidgets.QMainWindow):
             self.logMessage("Erro ao plotar gráfico: nem todos os arquivos foram carregados")
             return
 
-        magnetsDeviations = DataUtils.calculateMagnetsDeviations(self.app.frameDict[accelerator])
+        magnetsDeviations = []
+
+        if (accelerator == 'LTB' or accelerator == 'BTS'):
+            accelerator = 'transport-lines'
+            magnetsDeviations.append(DataUtils.calculateMagnetsDeviations(self.app.frameDict['LTB']))
+            magnetsDeviations.append(DataUtils.calculateMagnetsDeviations(self.app.frameDict['BTS']))
+        elif (accelerator == 'FE'):
+            magnetsDeviations.append(DataUtils.separateFEsData(DataUtils.calculateMagnetsDeviations(self.app.frameDict['FE']), ['MAN', 'EMA', 'CAT']))
+            magnetsDeviations.append(DataUtils.separateFEsData(DataUtils.calculateMagnetsDeviations(self.app.frameDict['FE']), ['IPE', 'CAR', 'MOG']))
+
+        else:
+            magnetsDeviations.append(DataUtils.calculateMagnetsDeviations(self.app.frameDict[accelerator]))
+            if (accelerator == 'SR'):
+                # appending in df B1's transversal deviations
+                # magnetsDeviations[0] = SR.calcB1PerpendicularTranslations(magnetsDeviations[0], self.app.entitiesDictMeas['SR'], self.app.entitiesDictNom['SR'], self.app.frameDict['SR'])
+                # magnetsDeviations[0] = SR.addTranslationsFromMagnetMeasurements(magnetsDeviations[0])
+                pass
 
         plotArgs = {'accelerator': accelerator, 'filtering':\
             {'SR': {'allDofs':  self.plotAllDofs_SR.isChecked(), 'lineWithinGirder': self.lineWithinGirder_SR.isChecked(), 'reportMode': self.reportMode_SR.isChecked(), 'errorbar': self.errorbar_SR.isChecked()},\
@@ -477,7 +486,15 @@ class Ui(QtWidgets.QMainWindow):
             'BTS': {'lineWithinGirder': False, 'reportMode': False, 'errorbar': self.errorbar_BTS.isChecked()},\
             'FE': {'lineWithinGirder': False, 'reportMode': False, 'errorbar': self.errorbar_FE.isChecked()}}}
 
-        DataUtils.plotDevitationData(magnetsDeviations, **plotArgs)
+        
+
+        if (accelerator == 'FE'):
+            plotArgs['FElist'] = ['MANACÁ', 'EMA', 'CATERETÊ']
+            DataUtils.plotDevitationData(magnetsDeviations[0], **plotArgs)
+            plotArgs['FElist'] = ['IPÊ', 'CARNAÚBA', 'MOGNO']
+            DataUtils.plotDevitationData(magnetsDeviations[1], **plotArgs)
+        else:
+            DataUtils.plotDevitationData(magnetsDeviations, **plotArgs)
 
     def plotComparativeDev(self):
         self.logMessage("Plotando o perfil de alinhamento de todo os aceleradores...")

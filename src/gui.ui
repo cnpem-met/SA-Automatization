@@ -1220,7 +1220,7 @@ border-radius:7px;</string>
              </property>
              <layout class="QVBoxLayout" name="verticalLayout_2">
               <item alignment="Qt::AlignHCenter">
-               <widget class="QPushButton" name="plotMachModel_SR">
+               <widget class="QPushButton" name="plotLongDist_SR">
                 <property name="enabled">
                  <bool>false</bool>
                 </property>
@@ -1244,7 +1244,7 @@ border-radius:7px;</string>
                </widget>
               </item>
               <item alignment="Qt::AlignHCenter">
-               <widget class="QPushButton" name="expMachModel_SR">
+               <widget class="QPushButton" name="expLongDist_SR">
                 <property name="enabled">
                  <bool>false</bool>
                 </property>
