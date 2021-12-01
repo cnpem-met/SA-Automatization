@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import (QMainWindow, QFileDialog, QWidget, QMessageBox, QDialog, QDialogButtonBox, QVBoxLayout, QTextEdit)
+from PyQt5.QtWidgets import (QMainWindow, QFileDialog, QWidget, QDialog, QDialogButtonBox, QVBoxLayout, QTextEdit)
 from PyQt5.QtGui import (QColor)
 from PyQt5 import uic
 from functools import partial

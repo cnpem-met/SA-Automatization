@@ -1,7 +1,16 @@
 # imports de bibliotecas
-from accelerators import (Booster, SR, LTB, BTS, FE)
-from dataUtils import DataUtils
-from ui import Ui
+from accelerator.booster import Booster
+from accelerator.storage_ring import SR
+from accelerator.ltb import LTB
+from accelerator.bts import BTS
+from accelerator.frontend import FE
+
+from geom_entitites.frame import Frame
+from operations.geometrical import calculateMagnetsDeviations, calculateMagnetsDistances, calculateMagnetsRelativeDeviations, debug_transformToLocalFrame, transformToLocalFrame
+from operations.misc import generateReport, printDictData, separateFEsData, sortFrameDictByBeamTrajectory
+from operations.plot import plotDevitationData, plotComparativeDeviation, plotRelativeDevitationData
+from operations.io import generateFrameDict, writeToExcel, readExcel, readCSV
+from ui.ui import Ui
 
 from PyQt5.QtWidgets import QApplication
 
@@ -53,13 +62,13 @@ class App(QApplication):
         self.loadEnv()
 
         # creating frame's dict for the particular accelerator
-        self.frameDict['SR'] = DataUtils.generateFrameDict(self.lookupTable['SR'])
+        self.frameDict['SR'] = generateFrameDict(self.lookupTable['SR'])
 
         entitiesDictNom = SR.createObjectsStructure(self.nominals['SR'])
 
         self.entitiesDictNom['SR'] = entitiesDictNom
 
-        DataUtils.debug_transformToLocalFrame(self.entitiesDictNom['SR'], self.frameDict['SR'], 'SR')
+        debug_transformToLocalFrame(self.entitiesDictNom['SR'], self.frameDict['SR'], 'SR')
 
     def loadEnv(self):
         with open("config.json", "r") as file:
@@ -86,11 +95,11 @@ class App(QApplication):
         self.loadLookuptableFile('FE', filePath=config['lookupFileName']['FE'])
 
     def exportLongitudinalDistances(self, accelerator):
-        longDistMeas = DataUtils.calculateMagnetsDistances(self.frameDict[accelerator], 'measured')
-        longDistNom = DataUtils.calculateMagnetsDistances(self.frameDict[accelerator], 'nominal')
+        longDistMeas = calculateMagnetsDistances(self.frameDict[accelerator], 'measured')
+        longDistNom = calculateMagnetsDistances(self.frameDict[accelerator], 'nominal')
 
-        DataUtils.writeToExcel("../data/output/distances-measured.xlsx", longDistMeas, accelerator)
-        DataUtils.writeToExcel("../data/output/distances-nominal.xlsx", longDistNom, accelerator)
+        writeToExcel("../data/output/distances-measured.xlsx", longDistMeas, accelerator)
+        writeToExcel("../data/output/distances-nominal.xlsx", longDistNom, accelerator)
 
     def exportAbsoluteDeviations(self, accelerator):
         # checando se todos os arquivos foram devidamente carregados
@@ -98,8 +107,8 @@ class App(QApplication):
             self.ui.logMessage("Erro ao plotar gráfico: nem todos os arquivos foram carregados")
             return
 
-        magnetsDeviations = DataUtils.calculateMagnetsDeviations(self.frameDict[accelerator])
-        DataUtils.writeToExcel(f"../data/output/deviations-{accelerator}.xlsx", magnetsDeviations, accelerator)
+        magnetsDeviations = calculateMagnetsDeviations(self.frameDict[accelerator])
+        writeToExcel(f"../data/output/deviations-{accelerator}.xlsx", magnetsDeviations, accelerator)
 
     def saveEnv(self):
         with open("config.json", "w") as file:
@@ -123,9 +132,9 @@ class App(QApplication):
         fileExtension = fileName.split('.')[1]
 
         if (fileExtension == 'txt' or fileExtension == 'csv' or fileExtension == 'TXT' or fileExtension == 'CSV'):
-            nominals = DataUtils.readCSV(filepath, 'points')
+            nominals = readCSV(filepath, 'points')
         elif (fileExtension == 'xlsx'):
-            nominals = DataUtils.readExcel(
+            nominals = readExcel(
                 filepath, 'points')
         else:
             self.ui.logMessage("Formato do arquivo "+fileName+" não suportado.", severity="alert")
@@ -156,9 +165,9 @@ class App(QApplication):
         fileExtension = fileName.split('.')[1]
 
         if (fileExtension == 'txt' or fileExtension == 'csv' or fileExtension == 'TXT' or fileExtension == 'CSV'):
-            measured = DataUtils.readCSV(filepath, 'points')
+            measured = readCSV(filepath, 'points')
         elif (fileExtension == 'xlsx'):
-            measured = DataUtils.readExcel(
+            measured = readExcel(
                 filepath, 'points')
         else:
             self.ui.logMessage("Formato do arquivo "+fileName+" não suportado.", severity="alert")
@@ -190,9 +199,9 @@ class App(QApplication):
         fileExtension = fileName.split('.')[1]
 
         if (fileExtension == 'txt' or fileExtension == 'csv' or fileExtension == 'TXT' or fileExtension == 'CSV'):
-            lookuptable = DataUtils.readCSV(filepath, 'lookuptable')
+            lookuptable = readCSV(filepath, 'lookuptable')
         elif (fileExtension == 'xlsx'):
-            lookuptable = DataUtils.readExcel(
+            lookuptable = readExcel(
                 filepath, 'lookuptable')
         else:
             self.ui.logMessage("Format of file "+fileName+"not supported.")
@@ -221,7 +230,7 @@ class App(QApplication):
 
     def processInternalData(self, accelerator):
         # creating frame's dict for the particular accelerator
-        self.frameDict[accelerator] = DataUtils.generateFrameDict(self.lookupTable[accelerator])
+        self.frameDict[accelerator] = generateFrameDict(self.lookupTable[accelerator])
 
         if (accelerator == 'booster'):
             entitiesDictNom = Booster.createObjectsStructure(self.nominals['booster'])
@@ -242,17 +251,17 @@ class App(QApplication):
         self.entitiesDictNom[accelerator] = entitiesDictNom
         self.entitiesDictMeas[accelerator] = entitiesDictMeas
 
-        DataUtils.transformToLocalFrame(self.entitiesDictNom[accelerator], self.frameDict[accelerator], accelerator)
-        DataUtils.transformToLocalFrame(self.entitiesDictMeas[accelerator], self.frameDict[accelerator], accelerator)
+        transformToLocalFrame(self.entitiesDictNom[accelerator], self.frameDict[accelerator], accelerator)
+        transformToLocalFrame(self.entitiesDictMeas[accelerator], self.frameDict[accelerator], accelerator)
 
         self.generateMeasuredFrames(accelerator)
 
-        self.frameDict[accelerator] = DataUtils.sortFrameDictByBeamTrajectory(self.frameDict[accelerator], accelerator)
+        self.frameDict[accelerator] = sortFrameDictByBeamTrajectory(self.frameDict[accelerator], accelerator)
 
-        self.report[accelerator] = DataUtils.generateReport(self.frameDict[accelerator], accelerator)
+        self.report[accelerator] = generateReport(self.frameDict[accelerator], accelerator)
 
-        # DataUtils.printFrameDict(self.frameDict[accelerator])
-        DataUtils.printDictData(self.entitiesDictMeas[accelerator])
+        # printFrameDict(self.frameDict[accelerator])
+        # printDictData(self.entitiesDictMeas[accelerator])
 
         self.ui.enable_plot_button(accelerator)
 
@@ -260,10 +269,10 @@ class App(QApplication):
         if (accelerator == 'SR'):
             typesOfMagnets = ['quadrupole', 'dipole-B1', 'dipole-B2', 'dipole-BC']
             for magnetType in typesOfMagnets:
-                DataUtils.generateMeasuredFrames(self.entitiesDictMeas[accelerator], self.entitiesDictNom[accelerator],\
-                                                self.frameDict[accelerator], 'SR', self, typeOfMagnets=magnetType, isTypeOfMagnetsIgnored=False)
+                self.calculateMeasuredFrames(self.entitiesDictMeas[accelerator], self.entitiesDictNom[accelerator],\
+                                                self.frameDict[accelerator], 'SR', typeOfMagnets=magnetType, isTypeOfMagnetsIgnored=False)
         else:
-            DataUtils.generateMeasuredFrames(self.entitiesDictMeas[accelerator], self.entitiesDictNom[accelerator],\
+            self.calculateMeasuredFrames(self.entitiesDictMeas[accelerator], self.entitiesDictNom[accelerator],\
                                              self.frameDict[accelerator], accelerator, self)
         return
         
@@ -280,14 +289,14 @@ class App(QApplication):
 
         if (accelerator == 'LTB' or accelerator == 'BTS'):
             accelerator = 'transport-lines'
-            magnetsDeviations.append(DataUtils.calculateMagnetsDeviations(self.frameDict['LTB']))
-            magnetsDeviations.append(DataUtils.calculateMagnetsDeviations(self.frameDict['BTS']))
+            magnetsDeviations.append(calculateMagnetsDeviations(self.frameDict['LTB']))
+            magnetsDeviations.append(calculateMagnetsDeviations(self.frameDict['BTS']))
         elif (accelerator == 'FE'):
-            magnetsDeviations.append(DataUtils.separateFEsData(DataUtils.calculateMagnetsDeviations(self.frameDict['FE']), ['MAN', 'EMA', 'CAT']))
-            magnetsDeviations.append(DataUtils.separateFEsData(DataUtils.calculateMagnetsDeviations(self.frameDict['FE']), ['IPE', 'CAR', 'MOG']))
+            magnetsDeviations.append(separateFEsData(calculateMagnetsDeviations(self.frameDict['FE']), ['MAN', 'EMA', 'CAT']))
+            magnetsDeviations.append(separateFEsData(calculateMagnetsDeviations(self.frameDict['FE']), ['IPE', 'CAR', 'MOG']))
 
         else:
-            magnetsDeviations.append(DataUtils.calculateMagnetsDeviations(self.frameDict[accelerator]))
+            magnetsDeviations.append(calculateMagnetsDeviations(self.frameDict[accelerator]))
             if (accelerator == 'SR'):
                 # appending in df B1's transversal deviations
                 # magnetsDeviations[0] = SR.calcB1PerpendicularTranslations(magnetsDeviations[0], self.entitiesDictMeas['SR'], self.entitiesDictNom['SR'], self.frameDict['SR'])
@@ -298,20 +307,20 @@ class App(QApplication):
 
         if (accelerator == 'FE'):
             plotArgs['FElist'] = ['MANACÁ', 'EMA', 'CATERETÊ']
-            DataUtils.plotDevitationData(magnetsDeviations[0], **plotArgs)
+            plotDevitationData(magnetsDeviations[0], **plotArgs)
             plotArgs['FElist'] = ['IPÊ', 'CARNAÚBA', 'MOGNO']
-            DataUtils.plotDevitationData(magnetsDeviations[1], **plotArgs)
+            plotDevitationData(magnetsDeviations[1], **plotArgs)
         else:
-            DataUtils.plotDevitationData(magnetsDeviations, **plotArgs)
+            plotDevitationData(magnetsDeviations, **plotArgs)
 
     def plotComparativeDev(self):
         self.ui.logMessage("Plotando o perfil de alinhamento de todo os aceleradores...")
         self.processEvents()
 
-        magnetsDeviations_LTB = DataUtils.calculateMagnetsDeviations(self.frameDict['LTB'])
-        magnetsDeviations_booster = DataUtils.calculateMagnetsDeviations(self.frameDict['booster'])
-        magnetsDeviations_BTS = DataUtils.calculateMagnetsDeviations(self.frameDict['BTS'])
-        magnetsDeviations_SR = DataUtils.calculateMagnetsDeviations(self.frameDict['SR'])
+        magnetsDeviations_LTB = calculateMagnetsDeviations(self.frameDict['LTB'])
+        magnetsDeviations_booster = calculateMagnetsDeviations(self.frameDict['booster'])
+        magnetsDeviations_BTS = calculateMagnetsDeviations(self.frameDict['BTS'])
+        magnetsDeviations_SR = calculateMagnetsDeviations(self.frameDict['SR'])
         deviation = [magnetsDeviations_LTB, magnetsDeviations_booster, magnetsDeviations_BTS, magnetsDeviations_SR]
 
         sizes = [magnetsDeviations_LTB.iloc[:, 0].size, magnetsDeviations_booster.iloc[:, 0].size, magnetsDeviations_BTS.iloc[:, 0].size]
@@ -321,7 +330,7 @@ class App(QApplication):
 
         plotArgs = self.ui.get_plot_args_from_ui('SR')
 
-        DataUtils.plotComparativeDeviation(deviations, **plotArgs)
+        plotComparativeDeviation(deviations, **plotArgs)
 
     def plotRelative(self, accelerator):
         self.ui.logMessage("Plotando o perfil de alinhamento relativo do "+accelerator+"...")
@@ -332,13 +341,89 @@ class App(QApplication):
             self.ui.logMessage("Erro ao plotar gráfico: nem todos os arquivos foram carregados")
             return
 
+        magnetsDeviations = calculateMagnetsRelativeDeviations(self.frameDict[accelerator])
 
-        magnetsDeviations = DataUtils.calculateMagnetsRelativeDeviations(
-            self.frameDict[accelerator])
+        # writeToExcel('../data/output/sr-devs.xlsx', magnetsDeviations)
+        plotRelativeDevitationData(magnetsDeviations, accelerator)
 
-        # DataUtils.writeToExcel('../data/output/sr-devs.xlsx', magnetsDeviations)
-        DataUtils.plotRelativeDevitationData(magnetsDeviations, accelerator)
+    def calculateMeasuredFrames(self, objectDictMeas, objectDictNom, frameDict, accelerator, typeOfMagnets='', isTypeOfMagnetsIgnored=True):
+        for objectName in objectDictMeas:
+            magnetDict = objectDictMeas[objectName]
+            for magnetName in magnetDict:
+                magnet = magnetDict[magnetName]
+                pointDict = magnet.pointDict
 
+                if (magnet.type == typeOfMagnets or isTypeOfMagnetsIgnored):
+                    if (accelerator == 'SR'):
+                        # creating lists for measured and nominal points
+                        try:
+                            pointList = SR.appendPoints(pointDict, objectDictNom, magnet, objectName)
+                        except KeyError:
+                            self.ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity="danger")
+                            continue
+                        # calculating the transformation from the nominal points to the measured ones
+                        try:
+                            localTransformation = SR.calculateLocalDeviationsByTypeOfMagnet(magnet, objectName, pointDict, frameDict, pointList)
+                        except KeyError:
+                            self.ui.logMessage('Falha no imã ' + magnet.name +': frame medido do quadrupolo adjacente ainda não foi calculado.', severity='danger')
+                            continue
+                    elif (accelerator == 'booster'):
+                        try:
+                            pointList = Booster.appendPoints(pointDict, objectDictNom, magnet, objectName)
+                            localTransformation = Booster.calculateLocalDeviations(magnet, pointList)
+                        except KeyError:
+                            self.ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity='danger')
+                            continue
+                    elif (accelerator == 'LTB'):
+                        try:
+                            pointList = LTB.appendPoints(pointDict, objectDictNom, magnet, objectName)
+                            localTransformation = LTB.calculateLocalDeviations(magnet, pointList)
+                        except KeyError:
+                            self.ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity='danger')
+                            continue
+                    elif (accelerator == 'BTS'):
+                        try:
+                            pointList = BTS.appendPoints(pointDict, objectDictNom, magnet, objectName)
+                            localTransformation = BTS.calculateLocalDeviations(magnet, pointList)
+                        except KeyError:
+                            self.ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity='danger')
+                            continue
+                    elif (accelerator == 'FE'):
+                        try:
+                            pointList = FE.appendPoints(pointDict, objectDictNom, magnet, objectName)
+                            localTransformation = FE.calculateLocalDeviations(magnet, pointList)
+                        except KeyError:
+                            self.ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity='danger')
+                            continue
+                    try:
+                        # referencing the transformation from the frame of nominal magnet to the machine-local
+                        baseTransformation = frameDict[localTransformation.frameFrom].transformation
+                    except KeyError:
+                        self.ui.logMessage('Falha no imã ' + magnet.name + ': frame nominal não foi computado; checar tabela com transformações.', severity='danger')
+                        continue
+
+                    # calculating the homogeneous matrix of the transformation from the frame of the measured magnet to the machine-local
+                    transfMatrix = baseTransformation.transfMatrix @ localTransformation.transfMatrix
+
+                    # updating the homogeneous matrix and frameFrom of the already created Transformation
+                    # tf = transfMatrix
+                    # transformation = Transformation('machine-local', localTransformation.frameTo, tf[0], tf[1], tf[2], tf[3], tf[4], tf[5])
+                    transformation = localTransformation
+                    transformation.transfMatrix = transfMatrix
+                    transformation.frameFrom = 'machine-local'
+
+                    transformation.Tx = transfMatrix[0, 3]
+                    transformation.Ty = transfMatrix[1, 3]
+                    transformation.Tz = transfMatrix[2, 3]
+                    transformation.Rx = baseTransformation.Rx + localTransformation.Rx
+                    transformation.Ry = baseTransformation.Ry + localTransformation.Ry
+                    transformation.Rz = baseTransformation.Rz + localTransformation.Rz
+
+                    # creating a new Frame with the transformation from the measured magnet to machine-local
+                    measMagnetFrame = Frame(transformation.frameTo, transformation)
+
+                    # adding it to the frame dictionary
+                    frameDict[measMagnetFrame.name] = measMagnetFrame
 
 if __name__ == "__main__":
     App()

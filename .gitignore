@@ -13,3 +13,4 @@ src/__pycache__
 src/old/
 
 *.code-workspace
+.qt_for_python/
