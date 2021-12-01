@@ -32,13 +32,11 @@ class Transformation(object):
         self.transfMatrix[:3, 3] = [self.Tx, self.Ty, self.Tz]
 
     @staticmethod
-    def evaluateTransformation(frameDict, initialFrame, targetFrame):
+    def evaluateTransformation(initialFrame, targetFrame):
         transformationList = []
-        transformationList.insert(
-            0, frameDict[initialFrame].transformation.transfMatrix)
+        transformationList.insert(0, initialFrame.transformation.transfMatrix)
 
-        transformationList.insert(
-            0, inv(frameDict[targetFrame].transformation.transfMatrix))
+        transformationList.insert(0, inv(targetFrame.transformation.transfMatrix))
 
         transformation = transformationList[0] @ transformationList[1]
 

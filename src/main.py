@@ -1,4 +1,5 @@
 # imports de bibliotecas
+from re import A
 from accelerator.booster import Booster
 from accelerator.storage_ring import SR
 from accelerator.ltb import LTB
@@ -7,7 +8,7 @@ from accelerator.frontend import FE
 
 from geom_entitites.frame import Frame
 from operations.geometrical import calculateMagnetsDeviations, calculateMagnetsDistances, calculateMagnetsRelativeDeviations, debug_transformToLocalFrame, transformToLocalFrame
-from operations.misc import generateReport, printDictData, separateFEsData, sortFrameDictByBeamTrajectory
+from operations.misc import generateReport, printDictData, printFrameDict, separateFEsData, sortFrameDictByBeamTrajectory
 from operations.plot import plotDevitationData, plotComparativeDeviation, plotRelativeDevitationData
 from operations.io import generateFrameDict, writeToExcel, readExcel, readCSV
 from ui.ui import Ui
@@ -42,6 +43,9 @@ class App(QApplication):
         self.entitiesDictNom = {}
         self.frameDict = {}
 
+        self.accelerators = {"SR": SR(), "booster": None, "LTB": None, "BTS": None, "FE": None}
+
+
         self.shiftsB1 = None
 
         # flags
@@ -70,11 +74,12 @@ class App(QApplication):
 
         debug_transformToLocalFrame(self.entitiesDictNom['SR'], self.frameDict['SR'], 'SR')
 
+    # ref: limpar
     def loadEnv(self):
         with open("config.json", "r") as file:
             config = json.load(file)
 
-        self.shiftsB1 = config['shiftsB1']
+        self.accelerators['SR'].shiftsB1 = config['shiftsB1']
 
         self.loadNominalsFile('booster', filePath=config['ptsNomFileName']['booster'])
         self.loadNominalsFile('SR', filePath=config['ptsNomFileName']['SR'])
@@ -115,15 +120,15 @@ class App(QApplication):
             config = {'ptsNomFileName': {"booster": self.ptsNomFileName['booster'], "SR": self.ptsNomFileName['SR'], "LTB": self.ptsNomFileName['LTB'], "BTS": self.ptsNomFileName['BTS'], "FE": self.ptsNomFileName['FE']},
                       'ptsMeasFileName': {"booster": self.ptsMeasFileName['booster'], "SR": self.ptsMeasFileName['SR'], "LTB": self.ptsMeasFileName['LTB'], "BTS": self.ptsMeasFileName['BTS'], "FE": self.ptsMeasFileName['FE']},
                       'lookupTable': {"booster": self.lookupTable['booster'], "SR": self.lookupTable['SR'], "LTB": self.lookupTable['LTB'], "BTS": self.lookupTable['BTS'], "FE": self.lookupTable['FE']},
-                      'shiftsB1': self.shiftsB1}
+                      'shiftsB1': self.accelerators['SR'].shiftsB1}
             json.dump(config, file)
 
-    def loadNominalsFile(self, accelerator, filePath=None):
+    def loadNominalsFile(self, acc_name, filePath=None):
 
         if(filePath == ""):
             return
 
-        filepath = filePath or self.ui.openFileNameDialog('pontos nominais', accelerator)
+        filepath = filePath or self.ui.openFileNameDialog('pontos nominais', acc_name)
 
         if(not filepath or filePath == ""):
             return
@@ -141,15 +146,16 @@ class App(QApplication):
             return
 
         # gerando grupos de pontos
-        self.nominals[accelerator] = nominals
+        self.nominals[acc_name] = nominals
+        self.accelerators[acc_name].points['nominal'] = nominals
 
-        self.isNominalsLoaded[accelerator] = True
-        self.ptsNomFileName[accelerator] = filepath
+        self.isNominalsLoaded[acc_name] = True
+        self.ptsNomFileName[acc_name] = filepath
         
-        self.ui.update_nominals_indicator(accelerator, fileName)
-        self.ui.logMessage("Arquivo nominal do "+accelerator+" carregado.")
+        self.ui.update_nominals_indicator(acc_name, fileName)
+        self.ui.logMessage("Arquivo nominal do "+acc_name+" carregado.")
 
-        self.checkAllFilesAndProcessData(accelerator)
+        self.checkAllFilesAndProcessData(acc_name)
 
     def loadMeasuredFile(self, accelerator, filePath=None):
         
@@ -174,6 +180,7 @@ class App(QApplication):
             return
 
         self.measured[accelerator] = measured
+        self.accelerators[accelerator].points['measured'] = measured
 
         self.isMeasuredLoaded[accelerator] = True
 
@@ -208,6 +215,7 @@ class App(QApplication):
             return
 
         self.lookupTable[accelerator] = lookuptable
+        self.accelerators[accelerator].lookupTable = lookuptable
 
         self.isLookuptableLoaded[accelerator] = True
         
@@ -230,40 +238,50 @@ class App(QApplication):
 
     def processInternalData(self, accelerator):
         # creating frame's dict for the particular accelerator
-        self.frameDict[accelerator] = generateFrameDict(self.lookupTable[accelerator])
+        # self.frameDict[accelerator] = generateFrameDict(self.lookupTable[accelerator])
 
-        if (accelerator == 'booster'):
-            entitiesDictNom = Booster.createObjectsStructure(self.nominals['booster'])
-            entitiesDictMeas = Booster.createObjectsStructure(self.measured['booster'])
-        elif (accelerator == 'SR'):
-            entitiesDictNom = SR.createObjectsStructure(self.nominals['SR'])
-            entitiesDictMeas = SR.createObjectsStructure(self.measured['SR'], shiftsB1=self.shiftsB1)
-        elif (accelerator == 'LTB'):
-            entitiesDictNom = LTB.createObjectsStructure(self.nominals['LTB'])
-            entitiesDictMeas = LTB.createObjectsStructure(self.measured['LTB'])
-        elif (accelerator == 'BTS'):
-            entitiesDictNom = BTS.createObjectsStructure(self.nominals['BTS'])
-            entitiesDictMeas = BTS.createObjectsStructure(self.measured['BTS'])
-        elif (accelerator == 'FE'):
-            entitiesDictNom = FE.createObjectsStructure(self.nominals['FE'])
-            entitiesDictMeas = FE.createObjectsStructure(self.measured['FE'])
+        if (accelerator == 'SR'):
+            self.accelerators[accelerator].generateFrameDict()
+            self.accelerators[accelerator].createObjectsStructure('nominal')
+            self.accelerators[accelerator].createObjectsStructure('measured')
 
-        self.entitiesDictNom[accelerator] = entitiesDictNom
-        self.entitiesDictMeas[accelerator] = entitiesDictMeas
+            printDictData(self.accelerators[accelerator].girders['nominal'])
 
-        transformToLocalFrame(self.entitiesDictNom[accelerator], self.frameDict[accelerator], accelerator)
-        transformToLocalFrame(self.entitiesDictMeas[accelerator], self.frameDict[accelerator], accelerator)
+            self.accelerators[accelerator].transformToLocalFrame('nominal')
+            self.accelerators[accelerator].transformToLocalFrame('measured')
 
-        self.generateMeasuredFrames(accelerator)
+            self.accelerators[accelerator].generateMeasuredFrames(self.ui)
 
-        self.frameDict[accelerator] = sortFrameDictByBeamTrajectory(self.frameDict[accelerator], accelerator)
+            self.accelerators[accelerator].sortFrameDictByBeamTrajectory('nominal')
+            self.accelerators[accelerator].sortFrameDictByBeamTrajectory('measured')
 
-        self.report[accelerator] = generateReport(self.frameDict[accelerator], accelerator)
+            self.report[accelerator] = generateReport(self.accelerators[accelerator].frames['measured'], accelerator)
 
-        # printFrameDict(self.frameDict[accelerator])
-        # printDictData(self.entitiesDictMeas[accelerator])
+            self.ui.enable_plot_button(accelerator)
 
-        self.ui.enable_plot_button(accelerator)
+        else:
+            return
+
+        # if (accelerator == 'SR'):
+        #     entitiesDictNom = SR.createObjectsStructure(self.nominals['SR'])
+        #     entitiesDictMeas = SR.createObjectsStructure(self.measured['SR'])
+        # elif (accelerator == 'booster'):
+        #     entitiesDictNom = Booster.createObjectsStructure(self.nominals['booster'])
+        #     entitiesDictMeas = Booster.createObjectsStructure(self.measured['booster'])
+        # elif (accelerator == 'LTB'):
+        #     entitiesDictNom = LTB.createObjectsStructure(self.nominals['LTB'])
+        #     entitiesDictMeas = LTB.createObjectsStructure(self.measured['LTB'])
+        # elif (accelerator == 'BTS'):
+        #     entitiesDictNom = BTS.createObjectsStructure(self.nominals['BTS'])
+        #     entitiesDictMeas = BTS.createObjectsStructure(self.measured['BTS'])
+        # elif (accelerator == 'FE'):
+        #     entitiesDictNom = FE.createObjectsStructure(self.nominals['FE'])
+        #     entitiesDictMeas = FE.createObjectsStructure(self.measured['FE'])
+
+        # self.entitiesDictNom[accelerator] = entitiesDictNom
+        # self.entitiesDictMeas[accelerator] = entitiesDictMeas
+
+        
 
     def generateMeasuredFrames(self, accelerator):
         if (accelerator == 'SR'):
@@ -296,14 +314,14 @@ class App(QApplication):
             magnetsDeviations.append(separateFEsData(calculateMagnetsDeviations(self.frameDict['FE']), ['IPE', 'CAR', 'MOG']))
 
         else:
-            magnetsDeviations.append(calculateMagnetsDeviations(self.frameDict[accelerator]))
+            magnetsDeviations.append(calculateMagnetsDeviations(self.accelerators[accelerator].frames))
             if (accelerator == 'SR'):
                 # appending in df B1's transversal deviations
                 # magnetsDeviations[0] = SR.calcB1PerpendicularTranslations(magnetsDeviations[0], self.entitiesDictMeas['SR'], self.entitiesDictNom['SR'], self.frameDict['SR'])
                 # magnetsDeviations[0] = SR.addTranslationsFromMagnetMeasurements(magnetsDeviations[0])
                 pass
 
-        plotArgs = self.ui.get_plot_args_from_ui(accelerator) 
+        plotArgs = self.ui.get_plot_args_from_ui(accelerator)
 
         if (accelerator == 'FE'):
             plotArgs['FElist'] = ['MANACÁ', 'EMA', 'CATERETÊ']

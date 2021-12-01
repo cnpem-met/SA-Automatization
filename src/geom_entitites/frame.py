@@ -7,8 +7,8 @@ class Frame(object):
         self.transformation = homogeneosTransf
 
     @staticmethod
-    def changeFrame(frameFrom, frameTo, pointDict, frameDict):
-        transformation = Transformation.evaluateTransformation(frameDict, frameFrom, frameTo)
+    def changeFrame(frameFrom, frameTo, pointDict):
+        transformation = Transformation.evaluateTransformation(frameFrom, frameTo)
 
         # checking if the transformation's calculation went ok
         # if (not isTransformOk):
@@ -17,6 +17,5 @@ class Frame(object):
         # iterating over magnet's points and transforming then to the new frame
         for pointName in pointDict:
             point = pointDict[pointName]
-            point.transform(
-                transformation, frameTo)
+            point.transform(transformation, frameTo.name)
 

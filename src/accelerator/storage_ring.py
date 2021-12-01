@@ -9,11 +9,167 @@ import numpy as np
 import math
 
 class SR():
-    @staticmethod
-    def reorderDict(girderDict):
-        for girderName in girderDict:
+    def __init__(self):
+        self.lookupTable = None
+        self.frames = {'measured': {}, 'nominal': {}}
+        self.points = {'measured': None, 'nominal': None}
+        self.girders = {'measured': {}, 'nominal': {}}
+        self.shiftsB1 = None
+
+    def generateFrameDict(self):
+        # creating base frame
+        self.frames['nominal']['machine-local'] = Frame('machine-local', Transformation('machine-local', 'machine-local', 0, 0, 0, 0, 0, 0))
+
+        # iterate over dataframe
+        for frameName, dof in self.lookupTable.iterrows():
+            # newFrameName = frameName + "-NOMINAL"
+            transformation = Transformation('machine-local', frameName, dof['Tx'], dof['Ty'], dof['Tz'], dof['Rx'], dof['Ry'], dof['Rz'])
+
+            frame = Frame(frameName, transformation)
+            self.frames['nominal'][frameName] = frame
+
+    def createObjectsStructure(self, type_of_points):
+        # iterate over dataframe
+        for pointName, coordinate in self.points[type_of_points].iterrows():
+            
+            credentials = SR.generateCredentials(pointName)
+
+            if (not credentials['isSR'] or not credentials['isValidPoint']):
+                continue
+
+            # instantiating a Point object
+            point = Point(credentials['pointName'], coordinate['x'], coordinate['y'], coordinate['z'], 'machine-local')
+
+            # finding Girder object or instantiating a new one
+            if (not credentials['girder'] in self.girders[type_of_points]):
+                self.girders[type_of_points][credentials['girder']] = {}
+
+            magnetDict = self.girders[type_of_points][credentials['girder']]
+
+            # finding Magnet object or instantiating a new one
+            if (credentials['magnetName'] in magnetDict):
+                # reference to the Magnet object
+                magnet = magnetDict[credentials['magnetName']]
+                # append point into its point list
+                magnet.addPoint(point)
+                if (type_of_points == 'measured' and credentials['magnetType'] == 'dipole-B1'):
+                    magnet.shift = self.shiftsB1[credentials['magnetName']]
+            else:
+                # instantiate new Magnet object
+                magnet = Magnet(credentials['magnetName'], credentials['magnetType'])
+                magnet.addPoint(point)
+                if (type_of_points == 'measured' and credentials['magnetType'] == 'dipole-B1'):
+                    magnet.shift = self.shiftsB1[credentials['magnetName']]
+
+                # including on data structure
+                self.girders[type_of_points][credentials['girder']][credentials['magnetName']] = magnet
+
+        self.reorderDict(type_of_points)
+
+    def transformToLocalFrame(self, type_of_points):
+        magnetsNotComputed = ""
+        for girder in self.girders[type_of_points]:
+            magnetDict = self.girders[type_of_points][girder]
+                
+            for magnetName in magnetDict:
+                magnet = magnetDict[magnetName]
+                # targetFrame = magnetName + "-NOMINAL"
+                try:
+                    magnet.transformFrame(self.frames['nominal'], self.frames['nominal'][magnetName])
+                except KeyError:
+                    magnetsNotComputed += magnet.name + ','
+
+        # at least one frame was not computed
+        if (magnetsNotComputed != ""):
+            print("[Transformação p/ frames locais] Imãs não computados: " + magnetsNotComputed[:-1])
+            pass
+
+    def generateMeasuredFrames(self, ui):
+        typeOfMagnets = ['quadrupole', 'dipole-B1', 'dipole-B2', 'dipole-BC']
+
+        for girder in self.girders['measured']:
+            magnetDict = self.girders['measured'][girder]
+            for magnetName in magnetDict:
+                magnet = magnetDict[magnetName]
+                pointDict = magnet.pointDict
+
+                if (magnet.type not in typeOfMagnets):
+                    continue
+
+                # creating lists for measured and nominal points
+                try:
+                    pointList = SR.appendPoints(pointDict, self.girders['nominal'], magnet, girder)
+                except KeyError:
+                    ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity="danger")
+                    continue
+                
+                # calculating the transformation from the nominal points to the measured ones
+                try:
+                    localTransformation = self.calculateLocalDeviationsByTypeOfMagnet(magnet, girder, pointDict, pointList)
+                except KeyError:
+                    ui.logMessage('Falha no imã ' + magnet.name +': frame medido do quadrupolo adjacente ainda não foi calculado.', severity='danger')
+                    continue
+
+                try:
+                    # referencing the transformation from the frame of nominal magnet to the machine-local
+                    baseTransformation = self.frames['nominal'][localTransformation.frameFrom].transformation
+                except KeyError:
+                    ui.logMessage('Falha no imã ' + magnet.name + ': frame nominal não foi computado; checar tabela com transformações.', severity='danger')
+                    continue
+
+                # calculating the homogeneous matrix of the transformation from the frame of the measured magnet to the machine-local
+                transfMatrix = baseTransformation.transfMatrix @ localTransformation.transfMatrix
+
+                # updating the homogeneous matrix and frameFrom of the already created Transformation
+                # tf = transfMatrix
+                # transformation = Transformation('machine-local', localTransformation.frameTo, tf[0], tf[1], tf[2], tf[3], tf[4], tf[5])
+                transformation = localTransformation
+                transformation.transfMatrix = transfMatrix
+                transformation.frameFrom = 'machine-local'
+
+                transformation.Tx = transfMatrix[0, 3]
+                transformation.Ty = transfMatrix[1, 3]
+                transformation.Tz = transfMatrix[2, 3]
+                transformation.Rx = baseTransformation.Rx + localTransformation.Rx
+                transformation.Ry = baseTransformation.Ry + localTransformation.Ry
+                transformation.Rz = baseTransformation.Rz + localTransformation.Rz
+
+                # creating a new Frame with the transformation from the measured magnet to machine-local
+                measMagnetFrame = Frame(transformation.frameTo, transformation)
+
+                # adding it to the frame dictionary
+                self.frames['measured'][measMagnetFrame.name] = measMagnetFrame
+
+    def sortFrameDictByBeamTrajectory(self, type_of_points):
+        # sorting in alphabetical order
+        keySortedList = sorted(self.frames[type_of_points])
+        sortedFrameDict = {}
+        for key in keySortedList:
+            sortedFrameDict[key] = self.frames[type_of_points][key]
+
+        finalFrameDict = {}
+        b1FrameList = []
+        # correcting the case of S0xB03
+        for frameName in sortedFrameDict:
+            frame = sortedFrameDict[frameName]
+
+            if ('B03-B1' in frame.name):
+                b1FrameList.append(frame)
+                continue
+
+            finalFrameDict[frame.name] = frame
+
+            if ('B03-QUAD01' in frame.name):
+                for b1Frame in b1FrameList:
+                    finalFrameDict[b1Frame.name] = b1Frame
+                b1FrameList = []
+
+            self.frames[type_of_points] = finalFrameDict
+
+    def reorderDict(self, type_of_points):
+        for girderName in self.girders[type_of_points]:
             if ('B03' in girderName):
-                magnetDict = girderDict[girderName]
+                magnetDict = self.girders[type_of_points][girderName]
 
                 orderedList = []
                 newMagnetDict = {}
@@ -25,7 +181,7 @@ class SR():
                 for item in orderedList:
                     newMagnetDict[item[0]] = item[1]
 
-                girderDict[girderName] = newMagnetDict
+                self.girders[type_of_points][girderName] = newMagnetDict
 
     @staticmethod
     def appendPoints(pointDict, girderDict, magnet, girderName):
@@ -59,16 +215,16 @@ class SR():
 
         return (pointsMeasured, pointsNominal)
 
-    @staticmethod
-    def calculateLocalDeviationsByTypeOfMagnet(magnet, girderName, pointDict, frameDict, pointList):
+    def calculateLocalDeviationsByTypeOfMagnet(self, magnet, girderName, pointDict, pointList):
         pointsMeasured = pointList[0]
         pointsNominal = pointList[1]
 
         if (magnet.type == 'dipole-B1'):
             # changuing points' frame: from the current activated frame ("dipole-nominal") to the "quadrupole-measured"
-            frameFrom = magnet.name+'-NOMINAL'
-            frameTo = girderName + '-QUAD01-MEASURED'
-            Frame.changeFrame(frameFrom, frameTo, pointDict, frameDict)
+            frameFrom = self.frames['nominal'][f'{magnet.name}']
+            frameTo = self.frames['measured'][f'{girderName}-QUAD01']
+
+            Frame.changeFrame(frameFrom, frameTo, pointDict)
 
             # listing the points' coordinates in the new frame
             points = []
@@ -77,7 +233,7 @@ class SR():
                 points.append([point.x, point.y, point.z])
 
             # changuing back point's frame
-            Frame.changeFrame(frameTo, frameFrom, pointDict, frameDict)
+            Frame.changeFrame(frameTo, frameFrom, pointDict)
 
             # calculating mid point position
             midPoint = np.mean(points, axis=0)
@@ -103,8 +259,8 @@ class SR():
             shiftedPointPosition = [midPoint[0] - shiftTransv, midPoint[1] + shiftVert, midPoint[2] + shiftLong]
 
             # defining a transformation between "dipole-measured" and "quadrupole-measured"
-            frameFrom = girderName + '-QUAD01-MEASURED'
-            frameTo = magnet.name + '-MEASURED'
+            frameFrom = girderName + '-QUAD01'
+            frameTo = magnet.name
             localTransformation = Transformation(frameFrom, frameTo, 0, 0, shiftedPointPosition[2], 0, dRy * 10**3, 0)  # mrad
 
         else:
@@ -135,16 +291,14 @@ class SR():
             else:
                 # no dof separation
                 dofs = ['Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz']
-                deviation = evaluateDeviation(
-                    pointsMeasured[0], pointsNominal[0], dofs)
+                deviation = evaluateDeviation(pointsMeasured[0], pointsNominal[0], dofs)
 
             # creating new Frames and inserting in the frame dictionary
             # [--- hard-coded, but auto would be better ---]
-            frameFrom = magnet.name + '-NOMINAL'
-            frameTo = magnet.name + '-MEASURED'
+            frameFrom = magnet.name
+            frameTo = magnet.name
 
-            localTransformation = Transformation(
-                frameFrom, frameTo, deviation[0], deviation[1], deviation[2], deviation[3], deviation[4], deviation[5])
+            localTransformation = Transformation(frameFrom, frameTo, deviation[0], deviation[1], deviation[2], deviation[3], deviation[4], deviation[5])
 
         return localTransformation
 
@@ -198,53 +352,6 @@ class SR():
         credentials["magnetName"] = magnetName
 
         return credentials
-    
-    @staticmethod
-    def createObjectsStructure(pointsDF, shiftsB1=None, isMeasured=False):
-
-        girderDict = {}
-
-        # iterate over dataframe
-        for pointName, coordinate in pointsDF.iterrows():
-            
-            credentials = SR.generateCredentials(pointName)
-
-            if (not credentials['isSR'] or not credentials['isValidPoint']):
-                continue
-
-            # instantiating a Point object
-            point = Point(
-                credentials['pointName'], coordinate['x'], coordinate['y'], coordinate['z'], 'machine-local')
-
-            # finding Girder object or instantiating a new one
-            if (not credentials['girder'] in girderDict):
-                girderDict[credentials['girder']] = {}
-
-            magnetDict = girderDict[credentials['girder']]
-
-            # print(shiftsB1)
-
-            # finding Magnet object or instantiating a new one
-            if (credentials['magnetName'] in magnetDict):
-                # reference to the Magnet object
-                magnet = magnetDict[credentials['magnetName']]
-                # append point into its point list
-                magnet.addPoint(point)
-                if (shiftsB1 and credentials['magnetType'] == 'dipole-B1'):
-                    magnet.shift = shiftsB1[credentials['magnetName']]
-            else:
-                # instantiate new Magnet object
-                magnet = Magnet(credentials['magnetName'], credentials['magnetType'])
-                magnet.addPoint(point)
-                if (shiftsB1 and credentials['magnetType'] == 'dipole-B1'):
-                    magnet.shift = shiftsB1[credentials['magnetName']]
-
-                # including on data structure
-                girderDict[credentials['girder']][credentials['magnetName']] = magnet
-
-        SR.reorderDict(girderDict)
-
-        return girderDict
 
     @staticmethod
     def calcB1PerpendicularTranslations(deviations, objectDictMeas, objectDictNom, frameDict):
@@ -264,7 +371,8 @@ class SR():
                     # copying for making manipulations
                     cp_point = Point.copyFromPoint(point)
                     # changuing frame to the nominal one
-                    targetFrame = magnetName+'-NOMINAL'
+                    # targetFrame = magnetName+'-NOMINAL'
+                    targetFrame = magnetName
                     cp_point.changeFrame(frameDict, targetFrame)
                     measPoints.append(cp_point.coords)
                 

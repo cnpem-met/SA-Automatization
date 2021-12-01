@@ -15,8 +15,9 @@ class Magnet(object):
             initialFrame = self.pointDict[point].frameName
             break
 
-        transformation = Transformation.evaluateTransformation(
-            frameDict, initialFrame, targetFrame)
+        initialFrame = frameDict[initialFrame]
+
+        transformation = Transformation.evaluateTransformation(initialFrame, targetFrame)
 
         # iterate over points and transform then
         for point in self.pointDict:

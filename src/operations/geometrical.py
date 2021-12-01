@@ -232,32 +232,36 @@ def debug_translatePoints(girderDict, frameDict):
     with open('../data/output/anel-novos_pontos.txt', 'w') as f:
         f.write(output)
 
-def calculateMagnetsDeviations(frameDict):
+def calculateMagnetsDeviations(frames):
     header = ['Magnet', 'Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz']
     deviationList = []
 
-    for frameName in frameDict:
-        frame = frameDict[frameName]
+    for frameName in frames['nominal']:
+        frame = frames['nominal'][frameName]
 
         if ('MEASURED' in frame.name or frame.name == 'machine-local'):
             continue
 
-        magnetName = ""
-        splitedFrameName = frame.name.split('-')
-        for i in range(len(splitedFrameName) - 1):
-            magnetName += (splitedFrameName[i]+'-')
-
-        frameFrom = magnetName + 'MEASURED'
-        frameTo = magnetName + 'NOMINAL'
+        # magnetName = ""
+        # splitedFrameName = frame.name.split('-')
+        # for i in range(len(splitedFrameName) - 1):
+        #     magnetName += (splitedFrameName[i]+'-')
 
         try:
-            transformation = Transformation.evaluateTransformation(frameDict, frameFrom, frameTo)
+            frameFrom = frames['measured'][frame.name]
+            frameTo = frames['nominal'][frame.name]
+        except KeyError:
+            print(f'error in magnet {frame.name}')
+            continue
+
+        try:
+            transformation = Transformation.evaluateTransformation(frameFrom, frameTo)
             dev = Transformation.individualDeviationsFromEquations(transformation)
         except KeyError:
             dev = [float('nan'), float('nan'), float('nan'), float('nan'), float('nan'), float('nan')]
             pass
 
-        dev.insert(0, magnetName[:-1])
+        dev.insert(0, frame.name)
 
         deviation = pd.DataFrame([dev], columns=header)
         deviationList.append(deviation)
