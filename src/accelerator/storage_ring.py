@@ -105,34 +105,27 @@ class SR():
                 
                 # calculating the transformation from the nominal points to the measured ones
                 try:
-                    localTransformation = self.calculateLocalDeviationsByTypeOfMagnet(magnet, girder, pointDict, pointList)
+                    localTransf, baseTransf = self.calculateTransformationsByTypeOfMagnet(magnet, girder, pointDict, pointList)
                 except KeyError:
                     ui.logMessage('Falha no imã ' + magnet.name +': frame medido do quadrupolo adjacente ainda não foi calculado.', severity='danger')
                     continue
 
-                try:
-                    # referencing the transformation from the frame of nominal magnet to the machine-local
-                    baseTransformation = self.frames['nominal'][localTransformation.frameFrom].transformation
-                except KeyError:
-                    ui.logMessage('Falha no imã ' + magnet.name + ': frame nominal não foi computado; checar tabela com transformações.', severity='danger')
-                    continue
-
                 # calculating the homogeneous matrix of the transformation from the frame of the measured magnet to the machine-local
-                transfMatrix = baseTransformation.transfMatrix @ localTransformation.transfMatrix
+                transfMatrix = baseTransf.transfMatrix @ localTransf.transfMatrix
 
                 # updating the homogeneous matrix and frameFrom of the already created Transformation
                 # tf = transfMatrix
                 # transformation = Transformation('machine-local', localTransformation.frameTo, tf[0], tf[1], tf[2], tf[3], tf[4], tf[5])
-                transformation = localTransformation
+                transformation = localTransf
                 transformation.transfMatrix = transfMatrix
                 transformation.frameFrom = 'machine-local'
 
                 transformation.Tx = transfMatrix[0, 3]
                 transformation.Ty = transfMatrix[1, 3]
                 transformation.Tz = transfMatrix[2, 3]
-                transformation.Rx = baseTransformation.Rx + localTransformation.Rx
-                transformation.Ry = baseTransformation.Ry + localTransformation.Ry
-                transformation.Rz = baseTransformation.Rz + localTransformation.Rz
+                transformation.Rx = baseTransf.Rx + localTransf.Rx
+                transformation.Ry = baseTransf.Ry + localTransf.Ry
+                transformation.Rz = baseTransf.Rz + localTransf.Rz
 
                 # creating a new Frame with the transformation from the measured magnet to machine-local
                 measMagnetFrame = Frame(transformation.frameTo, transformation)
@@ -215,7 +208,7 @@ class SR():
 
         return (pointsMeasured, pointsNominal)
 
-    def calculateLocalDeviationsByTypeOfMagnet(self, magnet, girderName, pointDict, pointList):
+    def calculateTransformationsByTypeOfMagnet(self, magnet, girderName, pointDict, pointList):
         pointsMeasured = pointList[0]
         pointsNominal = pointList[1]
 
@@ -262,6 +255,7 @@ class SR():
             frameFrom = girderName + '-QUAD01'
             frameTo = magnet.name
             localTransformation = Transformation(frameFrom, frameTo, 0, 0, shiftedPointPosition[2], 0, dRy * 10**3, 0)  # mrad
+            baseTransformation = self.frames['measured'][frameFrom].transformation
 
         else:
             if (magnet.type == 'dipole-B2'):
@@ -299,8 +293,10 @@ class SR():
             frameTo = magnet.name
 
             localTransformation = Transformation(frameFrom, frameTo, deviation[0], deviation[1], deviation[2], deviation[3], deviation[4], deviation[5])
+            baseTransformation = self.frames['nominal'][frameFrom].transformation
 
-        return localTransformation
+
+        return localTransformation, baseTransformation
 
     @staticmethod
     def generateCredentials(pointName):
