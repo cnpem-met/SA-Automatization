@@ -14,6 +14,9 @@ class Transformation(object):
         self.Rz = Rz
         self.createTransfMatrix()
 
+    def __str__(self) -> str:
+        return f'[{self.Tx}, {self.Ty}, {self.Tz}, {self.Rx}, {self.Ry}, {self.Rz}]'
+
     def createTransfMatrix(self):
 
         self.transfMatrix = np.zeros(shape=(4, 4))

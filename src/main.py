@@ -245,12 +245,15 @@ class App(QApplication):
             self.accelerators[accelerator].createObjectsStructure('nominal')
             self.accelerators[accelerator].createObjectsStructure('measured')
 
-            printDictData(self.accelerators[accelerator].girders['nominal'])
+            # printDictData(self.accelerators[accelerator].girders['nominal'])
 
             self.accelerators[accelerator].transformToLocalFrame('nominal')
             self.accelerators[accelerator].transformToLocalFrame('measured')
 
             self.accelerators[accelerator].generateMeasuredFrames(self.ui)
+
+            # printFrameDict(self.accelerators['SR'].frames['nominal'])
+            # printFrameDict(self.accelerators['SR'].frames['measured'])
 
             self.accelerators[accelerator].sortFrameDictByBeamTrajectory('nominal')
             self.accelerators[accelerator].sortFrameDictByBeamTrajectory('measured')

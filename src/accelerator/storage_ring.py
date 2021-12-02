@@ -168,7 +168,7 @@ class SR():
 
     def reorderDict(self, type_of_points):
         for girderName in self.girders[type_of_points]:
-            if ('B03' in girderName):
+            if ('B03' in girderName or 'B11' in girderName):
                 magnetDict = self.girders[type_of_points][girderName]
 
                 orderedList = []

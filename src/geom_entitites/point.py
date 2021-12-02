@@ -12,6 +12,9 @@ class Point(object):
         self.coords = [self.x, self.y, self.z]
         self.frameName = frame
 
+    def __str__(self):
+        return f'Point [{self.name}: ({self.x}, {self.y}, {self.z})]'
+
     @classmethod
     def copyFromPoint(cls, point):
         name = point.name
