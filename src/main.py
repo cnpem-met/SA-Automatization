@@ -6,11 +6,10 @@ from accelerator.ltb import LTB
 from accelerator.bts import BTS
 from accelerator.frontend import FE
 
-from geom_entitites.frame import Frame
-from operations.geometrical import calculateMagnetsDistances, calculateMagnetsRelativeDeviations, debug_transformToLocalFrame, transformToLocalFrame
-from operations.misc import generateReport, printDictData, printFrameDict, separateFEsData, sortFrameDictByBeamTrajectory
+from operations.geometrical import calculateMagnetsRelativeDeviations
+from operations.misc import generateReport, separateFEsData
 from operations.plot import plotDevitationData, plotComparativeDeviation, plotRelativeDevitationData
-from operations.io import generateFrameDict, writeToExcel, readExcel, readCSV
+from operations.io import writeToExcel, readExcel, readCSV
 from ui.ui import Ui
 
 from PyQt5.QtWidgets import QApplication
@@ -62,19 +61,6 @@ class App(QApplication):
         # report info
         self.report = {}
 
-    def runDebugFunctions(self):
-        self.loadEnv()
-
-        # creating frame's dict for the particular accelerator
-        self.frameDict['SR'] = generateFrameDict(self.lookupTable['SR'])
-
-        entitiesDictNom = SR.createObjectsStructure(self.nominals['SR'])
-
-        self.entitiesDictNom['SR'] = entitiesDictNom
-
-        debug_transformToLocalFrame(self.entitiesDictNom['SR'], self.frameDict['SR'], 'SR')
-
-    # ref: limpar
     def loadEnv(self):
         with open("config.json", "r") as file:
             config = json.load(file)
@@ -99,21 +85,15 @@ class App(QApplication):
         self.loadLookuptableFile('BTS', filePath=config['lookupFileName']['BTS'])
         self.loadLookuptableFile('FE', filePath=config['lookupFileName']['FE'])
 
-    def exportLongitudinalDistances(self, accelerator):
-        longDistMeas = calculateMagnetsDistances(self.frameDict[accelerator], 'measured')
-        longDistNom = calculateMagnetsDistances(self.frameDict[accelerator], 'nominal')
+    def exportLongitudinalDistances(self, acc_name):
+        longDistMeas = self.accelerators[acc_name].calculateMagnetsLongitudinalDistances('measured')
+        longDistNom = self.accelerators[acc_name].calculateMagnetsLongitudinalDistances('nominal')
 
-        writeToExcel("../data/output/distances-measured.xlsx", longDistMeas, accelerator)
-        writeToExcel("../data/output/distances-nominal.xlsx", longDistNom, accelerator)
+        writeToExcel("../data/output/long-distances-measured.xlsx", longDistMeas, acc_name)
+        writeToExcel("../data/output/long-distances-nominal.xlsx", longDistNom, acc_name)
 
-    def exportAbsoluteDeviations(self, accelerator):
-        # checando se todos os arquivos foram devidamente carregados
-        if(not self.isNominalsLoaded[accelerator] or not self.isMeasuredLoaded[accelerator] or not self.isLookuptableLoaded[accelerator]):
-            self.ui.logMessage("Erro ao plotar gráfico: nem todos os arquivos foram carregados")
-            return
-
-        magnetsDeviations = calculateMagnetsDeviations(self.frameDict[accelerator])
-        writeToExcel(f"../data/output/deviations-{accelerator}.xlsx", magnetsDeviations, accelerator)
+    def exportAbsoluteDeviations(self, acc_name):
+        writeToExcel(f"../data/output/deviations-{acc_name}.xlsx", self.accelerators[acc_name].deviations, acc_name)
 
     def saveEnv(self):
         with open("config.json", "w") as file:
@@ -253,25 +233,13 @@ class App(QApplication):
             accelerator.sortFrameDictByBeamTrajectory('nominal')
             accelerator.sortFrameDictByBeamTrajectory('measured')
 
-            self.report[accelerator.name] = generateReport(accelerator.frames['measured'], accelerator.name)
+            self.report[accelerator.name] = generateReport(accelerator.frames['measured'], accelerator.frames['nominal'])
 
             if accelerator.calculateMagnetsDeviations():
                 self.ui.enable_plot_button(accelerator.name)
             else:
                 self.ui.logMessage(f'Plot não foi possível para {accelerator.name} devido a ausência de frames medidos e/ou nominais.')
 
-
-    def generateMeasuredFrames(self, accelerator):
-        if (accelerator == 'SR'):
-            typesOfMagnets = ['quadrupole', 'dipole-B1', 'dipole-B2', 'dipole-BC']
-            for magnetType in typesOfMagnets:
-                self.calculateMeasuredFrames(self.entitiesDictMeas[accelerator], self.entitiesDictNom[accelerator],\
-                                                self.frameDict[accelerator], 'SR', typeOfMagnets=magnetType, isTypeOfMagnetsIgnored=False)
-        else:
-            self.calculateMeasuredFrames(self.entitiesDictMeas[accelerator], self.entitiesDictNom[accelerator],\
-                                             self.frameDict[accelerator], accelerator, self)
-        return
-        
     def plotAbsolute(self, acc_name):
         self.ui.logMessage("Plotando o perfil de alinhamento absoluto do "+acc_name+"...")
         self.processEvents()
@@ -306,13 +274,9 @@ class App(QApplication):
         self.ui.logMessage("Plotando o perfil de alinhamento de todo os aceleradores...")
         self.processEvents()
 
-        magnetsDeviations_LTB = calculateMagnetsDeviations(self.frameDict['LTB'])
-        magnetsDeviations_booster = calculateMagnetsDeviations(self.frameDict['booster'])
-        magnetsDeviations_BTS = calculateMagnetsDeviations(self.frameDict['BTS'])
-        magnetsDeviations_SR = calculateMagnetsDeviations(self.frameDict['SR'])
-        deviation = [magnetsDeviations_LTB, magnetsDeviations_booster, magnetsDeviations_BTS, magnetsDeviations_SR]
+        deviation = [self.accelerators['LTB'].deviations, self.accelerators['booster'].deviations, self.accelerators['BTS'].deviations, self.accelerators['SR'].deviations]
 
-        sizes = [magnetsDeviations_LTB.iloc[:, 0].size, magnetsDeviations_booster.iloc[:, 0].size, magnetsDeviations_BTS.iloc[:, 0].size]
+        sizes = [deviation[0].iloc[:, 0].size, deviation[1].iloc[:, 0].size, deviation[2].iloc[:, 0].size]
         lenghts = [sizes[0], sizes[1] + sizes[0], sizes[2] + sizes[1] + sizes[0]]
 
         deviations = pd.concat(deviation)
@@ -334,85 +298,6 @@ class App(QApplication):
 
         # writeToExcel('../data/output/sr-devs.xlsx', magnetsDeviations)
         plotRelativeDevitationData(magnetsDeviations, accelerator)
-
-    def calculateMeasuredFrames(self, objectDictMeas, objectDictNom, frameDict, accelerator, typeOfMagnets='', isTypeOfMagnetsIgnored=True):
-        for objectName in objectDictMeas:
-            magnetDict = objectDictMeas[objectName]
-            for magnetName in magnetDict:
-                magnet = magnetDict[magnetName]
-                pointDict = magnet.pointDict
-
-                if (magnet.type == typeOfMagnets or isTypeOfMagnetsIgnored):
-                    if (accelerator == 'SR'):
-                        # creating lists for measured and nominal points
-                        try:
-                            pointList = SR.appendPoints(pointDict, objectDictNom, magnet, objectName)
-                        except KeyError:
-                            self.ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity="danger")
-                            continue
-                        # calculating the transformation from the nominal points to the measured ones
-                        try:
-                            localTransformation = SR.calculateMagnetDeviation(magnet, objectName, pointDict, frameDict, pointList)
-                        except KeyError:
-                            self.ui.logMessage('Falha no imã ' + magnet.name +': frame medido do quadrupolo adjacente ainda não foi calculado.', severity='danger')
-                            continue
-                    elif (accelerator == 'booster'):
-                        try:
-                            pointList = Booster.appendPoints(pointDict, objectDictNom, magnet, objectName)
-                            localTransformation = Booster.calculateMagnetDeviation(magnet, pointList)
-                        except KeyError:
-                            self.ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity='danger')
-                            continue
-                    elif (accelerator == 'LTB'):
-                        try:
-                            pointList = LTB.appendPoints(pointDict, objectDictNom, magnet, objectName)
-                            localTransformation = LTB.calculateLocalDeviations(magnet, pointList)
-                        except KeyError:
-                            self.ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity='danger')
-                            continue
-                    elif (accelerator == 'BTS'):
-                        try:
-                            pointList = BTS.appendPoints(pointDict, objectDictNom, magnet, objectName)
-                            localTransformation = BTS.calculateLocalDeviations(magnet, pointList)
-                        except KeyError:
-                            self.ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity='danger')
-                            continue
-                    elif (accelerator == 'FE'):
-                        try:
-                            pointList = FE.appendPoints(pointDict, objectDictNom, magnet, objectName)
-                            localTransformation = FE.calculateLocalDeviations(magnet, pointList)
-                        except KeyError:
-                            self.ui.logMessage('Falha no imã ' + magnet.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity='danger')
-                            continue
-                    try:
-                        # referencing the transformation from the frame of nominal magnet to the machine-local
-                        baseTransformation = frameDict[localTransformation.frameFrom].transformation
-                    except KeyError:
-                        self.ui.logMessage('Falha no imã ' + magnet.name + ': frame nominal não foi computado; checar tabela com transformações.', severity='danger')
-                        continue
-
-                    # calculating the homogeneous matrix of the transformation from the frame of the measured magnet to the machine-local
-                    transfMatrix = baseTransformation.transfMatrix @ localTransformation.transfMatrix
-
-                    # updating the homogeneous matrix and frameFrom of the already created Transformation
-                    # tf = transfMatrix
-                    # transformation = Transformation('machine-local', localTransformation.frameTo, tf[0], tf[1], tf[2], tf[3], tf[4], tf[5])
-                    transformation = localTransformation
-                    transformation.transfMatrix = transfMatrix
-                    transformation.frameFrom = 'machine-local'
-
-                    transformation.Tx = transfMatrix[0, 3]
-                    transformation.Ty = transfMatrix[1, 3]
-                    transformation.Tz = transfMatrix[2, 3]
-                    transformation.Rx = baseTransformation.Rx + localTransformation.Rx
-                    transformation.Ry = baseTransformation.Ry + localTransformation.Ry
-                    transformation.Rz = baseTransformation.Rz + localTransformation.Rz
-
-                    # creating a new Frame with the transformation from the measured magnet to machine-local
-                    measMagnetFrame = Frame(transformation.frameTo, transformation)
-
-                    # adding it to the frame dictionary
-                    frameDict[measMagnetFrame.name] = measMagnetFrame
 
 if __name__ == "__main__":
     App()

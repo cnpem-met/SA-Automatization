@@ -3,9 +3,6 @@ from PyQt5.QtGui import (QColor)
 from PyQt5 import uic
 from functools import partial
 
-# globals
-DEBUG_MODE = False
-
 class Ui(QMainWindow):
     def __init__(self, app):
         # Initializing the inherited class
@@ -16,11 +13,6 @@ class Ui(QMainWindow):
 
         # Keeping a reference to the app component
         self.app = app
-
-        # Check the mode of the session: DEBUG_MODE => run specific functions to test something
-        if(DEBUG_MODE):
-            self.app.runDebugFunctions()
-            return
 
         # creating the event listeners for buttons and other widgets
         self.createEventListeners()

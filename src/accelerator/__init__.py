@@ -1,4 +1,6 @@
 from abc import ABC, abstractmethod
+import math
+import numpy as np
 
 import pandas as pd
 from geom_entitites.magnet import Magnet
@@ -136,6 +138,53 @@ class Accelerator(ABC):
 
         # return positivite flag to allow plotting
         return True
+
+    def calculateMagnetsLongitudinalDistances(self, type_of_points):
+        header = ['Reference', 'Distance (mm)']
+
+        distancesList = []
+        frameDictKeys = list(self.frames[type_of_points].keys())
+
+        for (index, frameName) in enumerate(self.frames[type_of_points]):
+            frame = self.frames[type_of_points][frameName]
+
+            if ('machine-local' in frame.name):
+                continue
+
+            if (index == 0):
+                firstMagnetsFrame = frame
+
+            if (index == len(self.frames[type_of_points]) - 1):
+                # first frame of the dictionary
+                magnet2frame = firstMagnetsFrame
+            else:
+                # next measured frame
+                magnet2frame = self.frames[type_of_points][frameDictKeys[index+1]]
+
+            magnet1frame = frame
+
+            magnet1coord = np.array([magnet1frame.transformation.Tx, magnet1frame.transformation.Ty, magnet1frame.transformation.Tz])
+            magnet2coord = np.array([magnet2frame.transformation.Tx, magnet2frame.transformation.Ty, magnet2frame.transformation.Tz])
+
+            vector = magnet2coord - magnet1coord
+            distance = math.sqrt(vector[0]**2 + vector[1]**2)
+
+            splitedName1 = magnet1frame.name.split('-')
+            splitedName2 = magnet2frame.name.split('-')
+
+            magnet1frameName = splitedName1[0] + '-' + splitedName1[1] + '- ' + splitedName1[2]
+            magnet2frameName = splitedName2[0] + '-' + splitedName2[1] + '- ' + splitedName2[2]
+
+            distanceReference = magnet1frameName + ' x ' + magnet2frameName
+
+            distanceDF = pd.DataFrame([[distanceReference, distance]], columns=header)
+            distancesList.append(distanceDF)
+
+        distances = pd.concat(distancesList, ignore_index=True)
+        distances = distances.set_index(header[0])
+
+        # retorna o df com os termos no tipo numérico certo
+        return distances.astype('float32')
 
     @abstractmethod
     def appendPoints(self, magnet_meas, magnet_nom):

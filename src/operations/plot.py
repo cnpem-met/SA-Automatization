@@ -5,8 +5,6 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 import matplotlib.offsetbox as offsetbox
 
-from operations.misc import normalizeTextInBox
-
 def plotDevitationData(deviations, **plotArgs):  # precisa adaptação pra booster
     # making a copy of the dataframes
     plotData = []
@@ -707,3 +705,16 @@ def plotRelativeDevitationData(deviations, accelerator):  # precisa adaptação 
     # evocando a tela com a figura
     plt.show()
 
+def normalizeTextInBox(namesList):
+    targetNumOfChar = 27
+    normalizedNames = []
+    for name in namesList:
+        # total characters of the name
+        lenght = len(name)
+        # number of empty characteres of normalized name
+        diff = targetNumOfChar - lenght
+        numOfSideEmptyChar = int(diff/2)
+        # building text
+        normName = " "*numOfSideEmptyChar + name + " "*numOfSideEmptyChar
+        normalizedNames.append(normName)
+    return normalizedNames

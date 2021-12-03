@@ -1,27 +1,7 @@
-from geom_entitites.frame import Frame
-from geom_entitites.transformation import Transformation
 from accelerator.storage_ring import SR
 
 import pandas as pd
 import numpy as np
-
-def generateFrameDict(lookupTableDF):
-    frameDict = {}
-
-    # creating base frame
-    frameDict['machine-local'] = Frame('machine-local', Transformation(
-        'machine-local', 'machine-local', 0, 0, 0, 0, 0, 0))
-
-    # iterate over dataframe
-    for frameName, dof in lookupTableDF.iterrows():
-        newFrameName = frameName + "-NOMINAL"
-        transformation = Transformation(
-            'machine-local', newFrameName, dof['Tx'], dof['Ty'], dof['Tz'], dof['Rx'], dof['Ry'], dof['Rz'])
-
-        frame = Frame(newFrameName, transformation)
-        frameDict[newFrameName] = frame
-
-    return frameDict
 
 def readExcel(fileDir, dataType, sheetName=0):
 
