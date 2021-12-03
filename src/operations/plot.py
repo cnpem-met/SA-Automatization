@@ -89,7 +89,7 @@ def plotDevitationData(deviations, **plotArgs):  # precisa adaptação pra boost
         axs[1].append(fig.add_subplot(gs_dev[2,1]))
         axs[1].append(fig.add_subplot(gs_rot[3,1]))
         
-    if (accelerator == 'transport-lines'):
+    if (accelerator == 'LTB' or accelerator == 'BTS'):
         # defining sheet layout and axes
         num_columns = len(deviations)
         axs_raw = fig.subplots(4,num_columns, sharex='col', gridspec_kw=dict(top=0.85, hspace=0.2, wspace=0.2, width_ratios=[1 for i in range(num_columns)]))
