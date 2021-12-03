@@ -17,12 +17,13 @@ class Accelerator(ABC):
         self.lookupTable = None
         self.frames = {'measured': {}, 'nominal': {}}
         self.points = {'measured': None, 'nominal': None}
-        self.girders = {'measured': {}, 'nominal': {}}
+        # self.girders = {'measured': {}, 'nominal': {}}
+        self.magnets = {'measured': {}, 'nominal': {}}
         self.deviations = None
     
     def generateFrameDict(self):
         # creating base frame
-        self.frames['nominal']['machine-local'] = Frame('machine-local', Transformation('machine-local', 'machine-local', 0, 0, 0, 0, 0, 0))
+        self.frames['nominal']['machine-local'] = Frame.machine_local()
 
         # iterate over dataframe
         for frameName, dof in self.lookupTable.iterrows():
@@ -32,70 +33,47 @@ class Accelerator(ABC):
             self.frames['nominal'][frameName] = frame
 
     def transformToLocalFrame(self, type_of_points):
-        magnetsNotComputed = ""
-        for girder in self.girders[type_of_points]:
-            magnetDict = self.girders[type_of_points][girder]
-                
-            for magnetName in magnetDict:
-                magnet = magnetDict[magnetName]
-                # targetFrame = magnetName + "-NOMINAL"
-                try:
-                    magnet.transformFrame(self.frames['nominal'], self.frames['nominal'][magnetName])
-                except KeyError:
-                    magnetsNotComputed += magnet.name + ','
+        magnetsNotComputed = ""  
+        for magnetName in self.magnets[type_of_points]:
+            magnet = self.magnets[type_of_points][magnetName]
+            try:
+                magnet.transformFrame(self.frames['nominal'][magnetName])
+            except KeyError:
+                magnetsNotComputed += magnet.name + ','
 
         # at least one frame was not computed
         if (magnetsNotComputed != ""):
-            print("[Transformação p/ frames locais] Imãs não computados: " + magnetsNotComputed[:-1])
+            # print("[Transformação p/ frames locais] Imãs não computados: " + magnetsNotComputed[:-1])
             pass
     
     def generateMeasuredFrames(self, ui, magnet_types_to_ignore: list = []):
-        for girder in self.girders['measured']:
-            magnetDict = self.girders['measured'][girder]
-            for magnetName in magnetDict:
-                magnet_meas = magnetDict[magnetName]
-                pointDict = magnet_meas.pointDict
+        for magnetName in self.magnets['measured']:
+            magnet_meas = self.magnets['measured'][magnetName]
+            magnet_nom = self.magnets['nominal'][magnetName]
 
-                if magnet_meas.type in magnet_types_to_ignore:
-                    continue
+            if magnet_meas.type in magnet_types_to_ignore:
+                continue
 
-                # creating lists for measured and nominal points
-                try:
-                    magnet_nom = self.girders['nominal'][girder][magnetName]
-                    pointList = self.appendPoints(magnet_meas, magnet_nom)
-                except KeyError:
-                    ui.logMessage('Falha no imã ' + magnet_meas.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity="danger")
-                    continue
-                
-                # calculating the transformation from the nominal points to the measured ones
-                try:
-                    localTransf, baseTransf = self.calculateNominalToMeasuredTransformation(magnet_meas, pointDict, pointList)
-                except KeyError:
-                    ui.logMessage('Falha no imã ' + magnet_meas.name +': frame medido do quadrupolo adjacente ainda não foi calculado.', severity='danger')
-                    continue
+            # checking if points are in both measured and nominal magnet objects
+            if not self.check_points_coexistance(magnet_meas, magnet_nom):
+                ui.logMessage('Falha no imã ' + magnet_meas.name +': o nome de 1 ou mais pontos nominais não correspondem aos medidos.', severity="danger")
+                continue
+            
+            # get list of measured and nominal point coordinates to further compute transformation by the means of a bestfit
+            points = self.get_points_to_bestfit(magnet_meas, magnet_nom)
 
-                # calculating the homogeneous matrix of the transformation from the frame of the measured magnet to the machine-local
-                transfMatrix = baseTransf.transfMatrix @ localTransf.transfMatrix
+            # calculating the transformation from the nominal points to the measured ones
+            try:
+                transformation = self.calculateNominalToMeasuredTransformation(magnet_meas, points)
+            except KeyError:
+                ui.logMessage('Falha no imã ' + magnet_meas.name +': frame medido do quadrupolo adjacente ainda não foi calculado.', severity='danger')
+                continue
 
-                # updating the homogeneous matrix and frameFrom of the already created Transformation
-                # tf = transfMatrix
-                # transformation = Transformation('machine-local', localTransformation.frameTo, tf[0], tf[1], tf[2], tf[3], tf[4], tf[5])
-                transformation = localTransf
-                transformation.transfMatrix = transfMatrix
-                transformation.frameFrom = 'machine-local'
+            # creating a new Frame with the transformation from the measured magnet to machine-local
+            measMagnetFrame = Frame(magnet_meas.name, transformation)
 
-                transformation.Tx = transfMatrix[0, 3]
-                transformation.Ty = transfMatrix[1, 3]
-                transformation.Tz = transfMatrix[2, 3]
-                transformation.Rx = baseTransf.Rx + localTransf.Rx
-                transformation.Ry = baseTransf.Ry + localTransf.Ry
-                transformation.Rz = baseTransf.Rz + localTransf.Rz
-
-                # creating a new Frame with the transformation from the measured magnet to machine-local
-                measMagnetFrame = Frame(transformation.frameTo, transformation)
-
-                # adding it to the frame dictionary
-                self.frames['measured'][measMagnetFrame.name] = measMagnetFrame
+            # adding it to the frame dictionary
+            self.frames['measured'][measMagnetFrame.name] = measMagnetFrame
 
     def calculateMagnetsDeviations(self) -> bool:
         header = ['Magnet', 'Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz']
@@ -186,43 +164,34 @@ class Accelerator(ABC):
         # retorna o df com os termos no tipo numérico certo
         return distances.astype('float32')
 
-    @abstractmethod
-    def appendPoints(self, magnet_meas, magnet_nom):
-        pointsMeasured = [[], []]
-        pointsNominal = [[], []]
-
-        pointDict = magnet_meas.pointDict
-
-        for pointName in pointDict:
-            pointMeas = pointDict[pointName]
-            pointNom = magnet_nom.pointDict[pointName]
-
-            pointName = pointMeas.name
-            pointMeasCoord = [pointMeas.x, pointMeas.y, pointMeas.z]
-            pointNomCoord = [pointNom.x, pointNom.y, pointNom.z]
-
-            # adicionando pontos às suas respectivas listas
-            pointsMeasured[0].append(pointMeasCoord)
-            pointsNominal[0].append(pointNomCoord)
-
-        return (pointsMeasured, pointsNominal)
+    def check_points_coexistance(self, magnet_meas, magnet_nom):
+        for point_name in magnet_meas.pointDict:
+            if not point_name in magnet_nom.pointDict:
+                return False
+        return True
 
     @abstractmethod
-    def calculateNominalToMeasuredTransformation(self, magnet, pointDict, pointList):
-        (pointsMeasured, pointsNominal) = pointList
+    def get_points_to_bestfit(self, magnet_meas, magnet_nom):
+
+        points_measured = magnet_meas.get_ordered_points_coords()
+        points_nominal = magnet_nom.get_ordered_points_coords()
+
+        return {'measured': points_measured, 'nominal': points_nominal}
+
+    @abstractmethod
+    def calculateNominalToMeasuredTransformation(self, magnet, pointList) -> Transformation:
+        # (pointsMeasured, pointsNominal) = pointList
 
         # no dof separation
         dofs = ['Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz']
-        deviation = evaluateDeviation(pointsMeasured[0], pointsNominal[0], dofs)
+        deviation = evaluateDeviation(pointList['measured'], pointList['nominal'], dofs)
 
-        frameFrom = magnet.name
-        frameTo = magnet.name
-
-        localTransformation = Transformation(frameFrom, frameTo, deviation[0], deviation[1],
-                                             deviation[2], deviation[3], deviation[4], deviation[5])
-        baseTransformation = self.frames['nominal'][frameFrom].transformation
+        localTransformation = Transformation(magnet.name, magnet.name, *deviation)
+        baseTransformation = self.frames['nominal'][magnet.name].transformation
         
-        return localTransformation, baseTransformation
+        transformation = Transformation.compose_transformations(baseTransformation, localTransformation, 'machine-local', magnet.name)
+
+        return transformation
 
     @abstractmethod
     def sortFrameDictByBeamTrajectory(self, type_of_points):
@@ -245,27 +214,24 @@ class Accelerator(ABC):
                 continue
 
             # instantiating a Point object
-            point = Point(credentials['pointName'], coordinate['x'], coordinate['y'], coordinate['z'], 'machine-local')
-
-            # finding Girder object or instantiating a new one
-            if (not credentials['location'] in self.girders[type_of_points]):
-                self.girders[type_of_points][credentials['location']] = {}
-
-            magnetDict = self.girders[type_of_points][credentials['location']]
+            point = Point(credentials['pointName'], coordinate['x'], coordinate['y'], coordinate['z'], Frame.machine_local())
 
             # finding Magnet object or instantiating a new one
-            if (credentials['magnetName'] in magnetDict):
+            if (credentials['magnetName'] in self.magnets[type_of_points]):
                 # reference to the Magnet object
-                magnet = magnetDict[credentials['magnetName']]
+                magnet = self.magnets[type_of_points][credentials['magnetName']]
                 # append point into its point list
                 magnet.addPoint(point)
             else:
                 # instantiate new Magnet object
-                magnet = Magnet(credentials['magnetName'], credentials['magnetType'])
+                magnet = Magnet(credentials['magnetName'], credentials['magnetType'], credentials['location'])
                 magnet.addPoint(point)
+                # # including on data structure
+                self.magnets[type_of_points][credentials['magnetName']] = magnet
+            
+            
+            
 
-                # including on data structure
-                self.girders[type_of_points][credentials['location']][credentials['magnetName']] = magnet
 
     @abstractmethod
     def generateCredentials(self, pointName):

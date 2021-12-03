@@ -13,12 +13,11 @@ class Frame(object):
     def changeFrame(frameFrom, frameTo, pointDict):
         transformation = Transformation.evaluateTransformation(frameFrom, frameTo)
 
-        # checking if the transformation's calculation went ok
-        # if (not isTransformOk):
-        #     return True
-
         # iterating over magnet's points and transforming then to the new frame
         for pointName in pointDict:
             point = pointDict[pointName]
             point.transform(transformation, frameTo.name)
 
+    @staticmethod
+    def machine_local():
+        return Frame('machine-local', Transformation('machine-local', 'machine-local', 0, 0, 0, 0, 0, 0))

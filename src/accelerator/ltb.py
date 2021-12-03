@@ -4,11 +4,11 @@ class LTB(Accelerator):
     def __init__(self, name) -> None:
         super().__init__(name)
 
-    def appendPoints(self, magnet_meas, magnet_nom):
-        return super().appendPoints(magnet_meas, magnet_nom)
+    def get_points_to_bestfit(self, magnet_meas, magnet_nom):
+        return super().get_points_to_bestfit(magnet_meas, magnet_nom)
 
-    def calculateNominalToMeasuredTransformation(self, magnet, pointDict, pointList):
-        return super().calculateNominalToMeasuredTransformation(magnet, pointDict, pointList)
+    def calculateNominalToMeasuredTransformation(self, magnet, pointList):
+        return super().calculateNominalToMeasuredTransformation(magnet, pointList)
 
     def createObjectsStructure(self, type_of_points):
         super().createObjectsStructure(type_of_points)

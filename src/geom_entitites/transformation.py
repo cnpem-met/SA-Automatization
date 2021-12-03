@@ -59,3 +59,19 @@ class Transformation(object):
 
         return [tx, ty, tz, rx * 10**3, ry * 10**3, rz * 10**3]
 
+    @staticmethod
+    def compose_transformations(base_transf, local_transf, frame_from: str, frame_to: str):
+        transfMatrix = base_transf.transfMatrix @ local_transf.transfMatrix
+        
+        transf = Transformation(frame_from, frame_to, 0, 0, 0, 0, 0, 0)
+
+        transf.Tx = transfMatrix[0, 3]
+        transf.Ty = transfMatrix[1, 3]
+        transf.Tz = transfMatrix[2, 3]
+        transf.Rx = base_transf.Rx + local_transf.Rx
+        transf.Ry = base_transf.Ry + local_transf.Ry
+        transf.Rz = base_transf.Rz + local_transf.Rz
+
+        transf.transfMatrix = transfMatrix
+
+        return transf

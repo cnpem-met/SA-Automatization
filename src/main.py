@@ -238,7 +238,7 @@ class App(QApplication):
             if accelerator.calculateMagnetsDeviations():
                 self.ui.enable_plot_button(accelerator.name)
             else:
-                self.ui.logMessage(f'Plot não foi possível para {accelerator.name} devido a ausência de frames medidos e/ou nominais.')
+                self.ui.logMessage(f'Plot não foi possível para {accelerator.name} devido a ausência de frames medidos e/ou nominais.', severity='danger')
 
     def plotAbsolute(self, acc_name):
         self.ui.logMessage("Plotando o perfil de alinhamento absoluto do "+acc_name+"...")
