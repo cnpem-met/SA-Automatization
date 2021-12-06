@@ -1,6 +1,8 @@
 ignore/
 
-data/output/
+data/output/*
+!data/output/.keep
+
 data/misc/
 data/input/old
 data/input/point-files/
