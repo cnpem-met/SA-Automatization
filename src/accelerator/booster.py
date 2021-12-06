@@ -7,16 +7,16 @@ class Booster(Accelerator):
     def get_points_to_bestfit(self, magnet_meas, magnet_nom):
         return super().get_points_to_bestfit(magnet_meas, magnet_nom)
 
-    def calculateNominalToMeasuredTransformation(self, magnet, pointList):
-        return super().calculateNominalToMeasuredTransformation(magnet, pointList)
+    def calculate_nominal_to_measured_transformation(self, magnet, pointList):
+        return super().calculate_nominal_to_measured_transformation(magnet, pointList)
 
-    def createObjectsStructure(self, type_of_points):
-        super().createObjectsStructure(type_of_points)
+    def populate_magnets_with_points(self, type_of_points):
+        super().populate_magnets_with_points(type_of_points)
 
-    def sortFrameDictByBeamTrajectory(self, type_of_points):
-        super().sortFrameDictByBeamTrajectory(type_of_points)
+    def sort_frames_by_beam_trajectory(self, type_of_points):
+        super().sort_frames_by_beam_trajectory(type_of_points)
 
-    def generateCredentials(self, pointName):
+    def get_point_info(self, pointName):
         credentials = {}
         credentials["isCurrentAcceleratorPoint"] = True
         credentials["isValidPoint"] = True

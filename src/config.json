@@ -1,23 +1,23 @@
 {"ptsNomFileName":
     {
-        "booster": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/booster-pontos-nominais.txt", 
-        "SR": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/anel-pontos-nominais.txt",
-        "LTB": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/LTB-pontos-nominais.txt",
-        "BTS": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/BTS-pontos-nominais.txt",
-        "FE": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/FE-pontos-nominais.txt"
+        "booster": "../data/input/booster-pontos-nominais.txt", 
+        "SR": "../data/input/anel-pontos-nominais.txt",
+        "LTB": "",
+        "BTS": "",
+        "FE": ""
     },
 "ptsMeasFileName":
     {
-        "booster": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/booster-pontos-medidos.txt", 
-        "SR": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/anel-pontos-medidos.txt",
-        "LTB": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/LTB-pontos-medidos.txt",
-        "BTS": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/BTS-pontos-medidos.txt",
-        "FE": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/FE-pontos-medidos.txt"
+        "booster": "../data/input/booster-pontos-medidos.txt", 
+        "SR": "../data/input/anel-pontos-medidos.txt",
+        "LTB": "",
+        "BTS": "",
+        "FE": ""
     },
 "lookupFileName": 
     {
-        "booster": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/booster-frames.csv",
-        "SR": "C:/Users/rodrigo.neto/Desktop/apps/Script-Automatizacao-SA/data/input/anel-frames.csv",
+        "booster": "../data/input/booster-frames.csv",
+        "SR": "../data/input/anel-frames.csv",
         "LTB": "",
         "BTS": "",
         "FE": ""

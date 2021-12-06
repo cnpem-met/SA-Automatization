@@ -1,4 +1,6 @@
 # imports de bibliotecas
+import config
+
 from accelerator import Accelerator
 from accelerator.booster import Booster
 from accelerator.storage_ring import SR
@@ -62,32 +64,32 @@ class App(QApplication):
         self.report = {}
 
     def loadEnv(self):
-        with open("config.json", "r") as file:
-            config = json.load(file)
+        # with open("config.json", "r") as file:
+        #     config = json.load(file)
 
-        self.accelerators['SR'].shiftsB1 = config['shiftsB1']
+        self.accelerators['SR'].shiftsB1 = config.shiftsB1
 
-        self.loadNominalsFile('booster', filePath=config['ptsNomFileName']['booster'])
-        self.loadNominalsFile('SR', filePath=config['ptsNomFileName']['SR'])
-        self.loadNominalsFile('LTB', filePath=config['ptsNomFileName']['LTB'])
-        self.loadNominalsFile('BTS', filePath=config['ptsNomFileName']['BTS'])
-        self.loadNominalsFile('FE', filePath=config['ptsNomFileName']['FE'])
+        self.loadNominalsFile('booster', filePath=config.ptsNomFileName['booster'])
+        self.loadNominalsFile('SR', filePath=config.ptsNomFileName['SR'])
+        self.loadNominalsFile('LTB', filePath=config.ptsNomFileName['LTB'])
+        self.loadNominalsFile('BTS', filePath=config.ptsNomFileName['BTS'])
+        self.loadNominalsFile('FE', filePath=config.ptsNomFileName['FE'])
 
-        self.loadMeasuredFile('booster', filePath=config['ptsMeasFileName']['booster'])
-        self.loadMeasuredFile('SR', filePath=config['ptsMeasFileName']['SR'])
-        self.loadMeasuredFile('LTB', filePath=config['ptsMeasFileName']['LTB'])
-        self.loadMeasuredFile('BTS', filePath=config['ptsMeasFileName']['BTS'])
-        self.loadMeasuredFile('FE', filePath=config['ptsMeasFileName']['FE'])
+        self.loadMeasuredFile('booster', filePath=config.ptsMeasFileName['booster'])
+        self.loadMeasuredFile('SR', filePath=config.ptsMeasFileName['SR'])
+        self.loadMeasuredFile('LTB', filePath=config.ptsMeasFileName['LTB'])
+        self.loadMeasuredFile('BTS', filePath=config.ptsMeasFileName['BTS'])
+        self.loadMeasuredFile('FE', filePath=config.ptsMeasFileName['FE'])
 
-        self.loadLookuptableFile('booster', filePath=config['lookupFileName']['booster'])
-        self.loadLookuptableFile('SR', filePath=config['lookupFileName']['SR'])
-        self.loadLookuptableFile('LTB', filePath=config['lookupFileName']['LTB'])
-        self.loadLookuptableFile('BTS', filePath=config['lookupFileName']['BTS'])
-        self.loadLookuptableFile('FE', filePath=config['lookupFileName']['FE'])
+        self.loadLookuptableFile('booster', filePath=config.lookupFileName['booster'])
+        self.loadLookuptableFile('SR', filePath=config.lookupFileName['SR'])
+        self.loadLookuptableFile('LTB', filePath=config.lookupFileName['LTB'])
+        self.loadLookuptableFile('BTS', filePath=config.lookupFileName['BTS'])
+        self.loadLookuptableFile('FE', filePath=config.lookupFileName['FE'])
 
     def exportLongitudinalDistances(self, acc_name):
-        longDistMeas = self.accelerators[acc_name].calculateMagnetsLongitudinalDistances('measured')
-        longDistNom = self.accelerators[acc_name].calculateMagnetsLongitudinalDistances('nominal')
+        longDistMeas = self.accelerators[acc_name].evaluate_magnets_long_inter_distances('measured')
+        longDistNom = self.accelerators[acc_name].evaluate_magnets_long_inter_distances('nominal')
 
         writeToExcel("../data/output/long-distances-measured.xlsx", longDistMeas, acc_name)
         writeToExcel("../data/output/long-distances-nominal.xlsx", longDistNom, acc_name)
@@ -96,12 +98,13 @@ class App(QApplication):
         writeToExcel(f"../data/output/deviations-{acc_name}.xlsx", self.accelerators[acc_name].deviations, acc_name)
 
     def saveEnv(self):
-        with open("config.json", "w") as file:
-            config = {'ptsNomFileName': {"booster": self.ptsNomFileName['booster'], "SR": self.ptsNomFileName['SR'], "LTB": self.ptsNomFileName['LTB'], "BTS": self.ptsNomFileName['BTS'], "FE": self.ptsNomFileName['FE']},
-                      'ptsMeasFileName': {"booster": self.ptsMeasFileName['booster'], "SR": self.ptsMeasFileName['SR'], "LTB": self.ptsMeasFileName['LTB'], "BTS": self.ptsMeasFileName['BTS'], "FE": self.ptsMeasFileName['FE']},
-                      'lookupTable': {"booster": self.lookupTable['booster'], "SR": self.lookupTable['SR'], "LTB": self.lookupTable['LTB'], "BTS": self.lookupTable['BTS'], "FE": self.lookupTable['FE']},
-                      'shiftsB1': self.accelerators['SR'].shiftsB1}
-            json.dump(config, file)
+        # with open("config.json", "w") as file:
+        #     config = {'ptsNomFileName': {"booster": self.ptsNomFileName['booster'], "SR": self.ptsNomFileName['SR'], "LTB": self.ptsNomFileName['LTB'], "BTS": self.ptsNomFileName['BTS'], "FE": self.ptsNomFileName['FE']},
+        #               'ptsMeasFileName': {"booster": self.ptsMeasFileName['booster'], "SR": self.ptsMeasFileName['SR'], "LTB": self.ptsMeasFileName['LTB'], "BTS": self.ptsMeasFileName['BTS'], "FE": self.ptsMeasFileName['FE']},
+        #               'lookupTable': {"booster": self.lookupTable['booster'], "SR": self.lookupTable['SR'], "LTB": self.lookupTable['LTB'], "BTS": self.lookupTable['BTS'], "FE": self.lookupTable['FE']},
+        #               'shiftsB1': self.accelerators['SR'].shiftsB1}
+        #     json.dump(config, file)
+        pass
 
     def loadNominalsFile(self, acc_name, filePath=None):
 
@@ -195,7 +198,7 @@ class App(QApplication):
             return
 
         self.lookupTable[accelerator] = lookuptable
-        self.accelerators[accelerator].lookupTable = lookuptable
+        self.accelerators[accelerator].ml_to_nominal_frame_mapping = lookuptable
 
         self.isLookuptableLoaded[accelerator] = True
         
@@ -221,21 +224,21 @@ class App(QApplication):
 
     def processInternalData(self, accelerator: Accelerator):
 
-            accelerator.generateFrameDict()
-            accelerator.createObjectsStructure('nominal')
-            accelerator.createObjectsStructure('measured')
+            accelerator.create_nominal_frames()
+            accelerator.populate_magnets_with_points('nominal')
+            accelerator.populate_magnets_with_points('measured')
 
-            accelerator.transformToLocalFrame('nominal')
-            accelerator.transformToLocalFrame('measured')
+            accelerator.change_to_local_frame('nominal')
+            accelerator.change_to_local_frame('measured')
 
-            accelerator.generateMeasuredFrames(self.ui, magnet_types_to_ignore=['sextupole'])
+            accelerator.calculate_measured_frames(self.ui, magnet_types_to_ignore=['sextupole'])
 
-            accelerator.sortFrameDictByBeamTrajectory('nominal')
-            accelerator.sortFrameDictByBeamTrajectory('measured')
+            accelerator.sort_frames_by_beam_trajectory('nominal')
+            accelerator.sort_frames_by_beam_trajectory('measured')
 
             self.report[accelerator.name] = generateReport(accelerator.frames['measured'], accelerator.frames['nominal'])
 
-            if accelerator.calculateMagnetsDeviations():
+            if accelerator.evaluate_magnets_deviations():
                 self.ui.enable_plot_button(accelerator.name)
             else:
                 self.ui.logMessage(f'Plot não foi possível para {accelerator.name} devido a ausência de frames medidos e/ou nominais.', severity='danger')

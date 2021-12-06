@@ -13,11 +13,11 @@ class SR(Accelerator):
     def __init__(self, name):
         super().__init__(name)
 
-    def createObjectsStructure(self, type_of_points):
+    def populate_magnets_with_points(self, type_of_points):
         # iterate over dataframe
         for pointName, coordinate in self.points[type_of_points].iterrows():
             
-            credentials = self.generateCredentials(pointName)
+            credentials = self.get_point_info(pointName)
 
             if (not credentials['isCurrentAcceleratorPoint'] or not credentials['isValidPoint']):
                 continue
@@ -45,7 +45,7 @@ class SR(Accelerator):
             
         self.reorderMagnets(type_of_points)
 
-    def sortFrameDictByBeamTrajectory(self, type_of_points):
+    def sort_frames_by_beam_trajectory(self, type_of_points):
         # sorting in alphabetical order
         keySortedList = sorted(self.frames[type_of_points])
         sortedFrameDict = {}
@@ -113,7 +113,7 @@ class SR(Accelerator):
 
         return {'measured': points_measured, 'nominal': points_nominal}
 
-    def calculateNominalToMeasuredTransformation(self, magnet, pointList) -> Transformation:
+    def calculate_nominal_to_measured_transformation(self, magnet, pointList) -> Transformation:
         if (magnet.type == 'dipole-B1'):
             pointDict = magnet.pointDict
             girderName = f'{magnet.name.split("-")[0]}-{magnet.name.split("-")[1]}'
@@ -196,7 +196,7 @@ class SR(Accelerator):
         transformation = Transformation.compose_transformations(baseTransformation, localTransformation, 'machine-local', magnet.name)
         return transformation
 
-    def generateCredentials(self, pointName):
+    def get_point_info(self, pointName):
         credentials = {}
         credentials["isCurrentAcceleratorPoint"] = True
         credentials["isValidPoint"] = True
