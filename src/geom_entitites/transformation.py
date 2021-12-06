@@ -1,25 +1,29 @@
+from typing import List
 import numpy as np
 import math
 from numpy.linalg import inv
 
-class Transformation(object):
-    def __init__(self, frameFrom, frameTo, Tx, Ty, Tz, Rx, Ry, Rz):
-        self.frameFrom = frameFrom
-        self.frameTo = frameTo
+class Transformation:
+    """ Class containing implementation of a Homogeneous Transformation abstraction. """
+
+    def __init__(self, frame_from, frame_to, Tx: float, Ty: float, Tz: float, Rx: float, Ry: float, Rz: float):
+        self.frameFrom = frame_from
+        self.frameTo = frame_to
         self.Tx = Tx
         self.Ty = Ty
         self.Tz = Tz
         self.Rx = Rx
         self.Ry = Ry
         self.Rz = Rz
-        self.createTransfMatrix()
+        self.create_transf_matrix()
 
     def __str__(self) -> str:
         return f'[{self.Tx}, {self.Ty}, {self.Tz}, {self.Rx}, {self.Ry}, {self.Rz}]'
 
-    def createTransfMatrix(self):
+    def create_transf_matrix(self):
+        """ Generates a homogeneos transformation matrix to be used in calculations. """
 
-        self.transfMatrix = np.zeros(shape=(4, 4))
+        self.transf_matrix = np.zeros(shape=(4, 4))
 
         rot_z = np.array([[np.cos(self.Rz*10**-3), -np.sin(self.Rz*10**-3), 0],
                           [np.sin(self.Rz*10**-3), np.cos(self.Rz*10**-3), 0], [0, 0, 1]])
@@ -28,50 +32,52 @@ class Transformation(object):
         rot_x = np.array([[1, 0, 0], [0, np.cos(
             self.Rx*10**-3), -np.sin(self.Rx*10**-3)], [0, np.sin(self.Rx*10**-3), np.cos(self.Rx*10**-3)]])
 
-        rotationMatrix = rot_z @ rot_y @ rot_x
+        rotation_matrix = rot_z @ rot_y @ rot_x
 
-        self.transfMatrix[:3, :3] = rotationMatrix
-        self.transfMatrix[3, 3] = 1
-        self.transfMatrix[:3, 3] = [self.Tx, self.Ty, self.Tz]
+        self.transf_matrix[:3, :3] = rotation_matrix
+        self.transf_matrix[3, 3] = 1
+        self.transf_matrix[:3, 3] = [self.Tx, self.Ty, self.Tz]
 
     @staticmethod
-    def evaluateTransformation(initialFrame, targetFrame):
-        transformationList = []
-        transformationList.insert(0, initialFrame.transformation.transfMatrix)
+    def evaluateTransformation(initial_frame, target_frame):
+        """ Computes the transformation between 2 given frames. """
 
-        transformationList.insert(0, inv(targetFrame.transformation.transfMatrix))
+        transf1 = inv(target_frame.transformation.transf_matrix)
+        transf2 = initial_frame.transformation.transf_matrix
 
-        transformation = transformationList[0] @ transformationList[1]
+        transformation = transf1 @ transf2
 
         return transformation
 
     @staticmethod
-    def individualDeviationsFromEquations(transfMatrix):
-        # Ry
-        ry = math.asin(-transfMatrix[2, 0])
-        # Rz
-        rz = math.asin(transfMatrix[1, 0]/math.cos(ry))
-        # Rx
-        rx = math.asin(transfMatrix[2, 1]/math.cos(ry))
-        # Tx, Ty, Tz
-        (tx, ty, tz) = (transfMatrix[0, 3],
-                        transfMatrix[1, 3], transfMatrix[2, 3])
+    def individualDeviationsFromEquations(transf_matrix: List[list]) -> list:
+        """ Computes de deviations from a given transformation matrix. """
+
+        # rotations
+        ry = math.asin(-transf_matrix[2, 0])
+        rz = math.asin(transf_matrix[1, 0]/math.cos(ry))
+        rx = math.asin(transf_matrix[2, 1]/math.cos(ry))
+        
+        # translations
+        (tx, ty, tz) = (transf_matrix[0, 3], transf_matrix[1, 3], transf_matrix[2, 3])
 
         return [tx, ty, tz, rx * 10**3, ry * 10**3, rz * 10**3]
 
     @staticmethod
     def compose_transformations(base_transf, local_transf, frame_from: str, frame_to: str):
-        transfMatrix = base_transf.transfMatrix @ local_transf.transfMatrix
+        """ Computes the resultant transformation given by two subsequent transformations. """
+        
+        transf_matrix = base_transf.transf_matrix @ local_transf.transf_matrix
         
         transf = Transformation(frame_from, frame_to, 0, 0, 0, 0, 0, 0)
 
-        transf.Tx = transfMatrix[0, 3]
-        transf.Ty = transfMatrix[1, 3]
-        transf.Tz = transfMatrix[2, 3]
+        transf.Tx = transf_matrix[0, 3]
+        transf.Ty = transf_matrix[1, 3]
+        transf.Tz = transf_matrix[2, 3]
         transf.Rx = base_transf.Rx + local_transf.Rx
         transf.Ry = base_transf.Ry + local_transf.Ry
         transf.Rz = base_transf.Rz + local_transf.Rz
 
-        transf.transfMatrix = transfMatrix
+        transf.transf_matrix = transf_matrix
 
         return transf

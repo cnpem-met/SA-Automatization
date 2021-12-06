@@ -4,8 +4,8 @@ from geom_entitites.magnet import Magnet
 from geom_entitites.transformation import Transformation
 
 class BTS(Accelerator):
-    def __init__(self, name) -> None:
-        super().__init__(name)
+    def __init__(self) -> None:
+        super().__init__('BTS')
 
     def get_points_to_bestfit(self, magnet_meas: Magnet, magnet_nom: Magnet) -> Dict[str, list]:
         return super().get_points_to_bestfit(magnet_meas, magnet_nom)

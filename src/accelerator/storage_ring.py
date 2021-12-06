@@ -4,15 +4,15 @@ from geom_entitites.point import Point
 from geom_entitites.transformation import Transformation
 from geom_entitites.frame import Frame
 
-from operations.geometrical import evaluateDeviation
+from operations.geometrical import evaluate_deviation_with_bestfit
 from accelerator import Accelerator
 
 import numpy as np
 import math
 
 class SR(Accelerator):
-    def __init__(self, name):
-        super().__init__(name)
+    def __init__(self):
+        super().__init__('SR')
 
     def populate_magnets_with_points(self, type_of_points: str) -> None:
         """ Creates magnets objects and populates it with loaded points. """
@@ -34,14 +34,14 @@ class SR(Accelerator):
                 # reference to the Magnet object
                 magnet = self.magnets[type_of_points][point_info['magnetName']]
                 # append point into its point list
-                magnet.addPoint(point)
+                magnet.add_point(point)
                 # if type of magnet is B1 and point is measured, insert offset into magnets properties
                 if (type_of_points == 'measured' and point_info['magnetType'] == 'dipole-B1'):
                     magnet.shift = self.shiftsB1[point_info['magnetName']]
             else:
                 # instantiate new Magnet object
                 magnet = Magnet(point_info['magnetName'], point_info['magnetType'], point_info['location'])
-                magnet.addPoint(point)
+                magnet.add_point(point)
                 if (type_of_points == 'measured' and point_info['magnetType'] == 'dipole-B1'):
                     magnet.shift = self.shiftsB1[point_info['magnetName']]
                 # including in data structure
@@ -152,7 +152,7 @@ class SR(Accelerator):
             girder_name = magnet.parent_ref
             frame_from = self.frames['nominal'][f'{magnet.name}']
             frame_to = self.frames['measured'][f'{girder_name}-QUAD01']
-            Frame.changeFrame(frame_from, frame_to, points)
+            Frame.change_frame(frame_from, frame_to, points)
 
             # listing the points' coordinates in the new frame for latter usage
             points_transformed = []
@@ -160,7 +160,7 @@ class SR(Accelerator):
                 points_transformed.append([point.x, point.y, point.z])
 
             # changuing back point's frame
-            Frame.changeFrame(frame_to, frame_from, points)
+            Frame.change_frame(frame_to, frame_from, points)
 
             # calculating mid point position of the 2 measured B1 points
             mid_point = np.mean(points_transformed, axis=0)
@@ -199,7 +199,7 @@ class SR(Accelerator):
 
                 # calculating transformation for the 1st group of points associated with level and height
                 dofs = ['Ty', 'Rx', 'Rz']
-                dev_tyrxrz = evaluateDeviation(points['measured']['TyRxRz'], points['nominal']['TyRxRz'], dofs)
+                dev_tyrxrz = evaluate_deviation_with_bestfit(points['measured']['TyRxRz'], points['nominal']['TyRxRz'], dofs)
             
                 # once calculated the 1st transf., transform the 2nd group of points to correct its level and height
                 # before using then in the calculation of deviation with the rest of degrees of freedom
@@ -207,19 +207,19 @@ class SR(Accelerator):
                 for point in points['nominal']['TxTzRy']:
                     transfPt = Point('n/c', point[0], point[1], point[2])
                     transform = Transformation('n/c', 'n/c', 0, dev_tyrxrz[0], 0, dev_tyrxrz[1], 0, dev_tyrxrz[2])
-                    transfPt.transform(transform.transfMatrix, 'n/c')
+                    transfPt.transform(transform.transf_matrix, 'n/c')
                     transfPoints.append([transfPt.x, transfPt.y, transfPt.z])
 
                 # calculating the 2nd and last deviation, considering the others dofs and the transformed points
                 dofs = ['Tx', 'Tz', 'Ry']
-                dev_txtzry = evaluateDeviation(points['measured']['TxTzRy'], transfPoints, dofs)
+                dev_txtzry = evaluate_deviation_with_bestfit(points['measured']['TxTzRy'], transfPoints, dofs)
 
                 # agregating parcial dofs
                 deviation = np.array([dev_txtzry[0], dev_tyrxrz[0], dev_txtzry[1], dev_tyrxrz[1], dev_txtzry[2], dev_tyrxrz[2]])
             else:
                 # no dof separation, normal evaluation
                 dofs = ['Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz']
-                deviation = evaluateDeviation(points['measured'], points['nominal'], dofs)
+                deviation = evaluate_deviation_with_bestfit(points['measured'], points['nominal'], dofs)
 
             # defining machine-local to local nominal frame transformation (base)
             # and local nominal to local measured transformation (local)
@@ -287,58 +287,41 @@ class SR(Accelerator):
 
         return point_info
 
-    @staticmethod
-    def calcB1PerpendicularTranslations(deviations, objectDictMeas, objectDictNom, frameDict):
-        for objectName in objectDictMeas:
-            magnetDict = objectDictMeas[objectName]
-            for magnetName in magnetDict:
-                magnet = magnetDict[magnetName]
+    def calculate_B1_txty_deviations(self) -> None:
+        """ Auxiliary method to evaluate the perpendicular (Tx and Ty) deviations of B1 magnets,
+            which aren't considered in oficial reports but are worth to be tracked. """
 
-                if (magnet.type != 'dipole-B1'):
-                    continue
-                
-                # extracting measured points and changuing to nominal frame
-                measPoints = []
-                pointDict = magnet.pointDict
-                for pointName in pointDict:
-                    point = pointDict[pointName]
-                    # copying for making manipulations
-                    cp_point = Point.copyFromPoint(point)
-                    # changuing frame to the nominal one
-                    # targetFrame = magnetName+'-NOMINAL'
-                    targetFrame = magnetName
-                    cp_point.changeFrame(frameDict, targetFrame)
-                    measPoints.append(cp_point.coords)
-                
-                # making calculations to determine the deviation from nominal
-                nomPtDict = objectDictNom[objectName][magnetName].pointDict
-                nomPoints = [nomPtDict[pt].coords for pt in nomPtDict]
-                measMean = np.mean(measPoints, axis=0)
-                nomMean = np.mean(nomPoints, axis=0)
-                dev = measMean - nomMean
-                deviations.loc[magnetName, ['Tx', 'Ty']] = dev[:2]
-        return deviations
+        for magnet in self.magnets['measured'].values():
+            if (magnet.type != 'dipole-B1'):
+                continue
+            
+            # extracting measured points and changuing to nominal frame
+            meas_points = []
+            for point in magnet.points.values():
+                # copying for making manipulations
+                cp_point = Point.copy_from_point(point)
+                # changuing frame to the nominal one
+                cp_point.changeFrame(self.frames['nominal'][magnet.name])
+                meas_points.append(cp_point.coord_list)
+            
+            # making calculations to determine the deviation from nominal
+            nom_points = [pt.coord_list for pt in self.magnets['nominal'][magnet.name].points]
+            avg_meas_points = np.mean(meas_points, axis=0)
+            avg_nom_points = np.mean(nom_points, axis=0)
+            deviation = avg_meas_points - avg_nom_points
+            self.deviations.loc[magnet, ['Tx', 'Ty']] = deviation[:2]
 
     @staticmethod
-    def addTranslationsFromMagnetMeasurements(deviations):
-        for magnet, dof in deviations.iterrows():
-            translations = SR.getUncertaintyAndTranslationsPerMagnet(magnet, 'trans')
-            deviations.at[magnet, 'Tx'] = dof['Tx'] + translations[0]
-            deviations.at[magnet, 'Ty'] = dof['Ty'] + translations[1]
-            deviations.at[magnet, 'Tz'] = dof['Tz'] + translations[2]
-            deviations.at[magnet, 'Rz'] = dof['Rz'] + translations[3]
-        return deviations
+    def check_magnet_family(magnet_name: str) -> str:
+        """" Auxiliary static method that maps which family a specific
+             magnet is part of for reporting purposes """
 
-    @staticmethod
-    def getUncertaintyAndTranslationsPerMagnet(magnetName, uncOrTrans, DOF_num=0):
         sectorA = ['S01', 'S05', 'S09', 'S13', 'S17']
         sectorB = ['S02', 'S04', 'S06', 'S08', 'S10', 'S12', 'S14', 'S16', 'S18', 'S20']
         sectorP = ['S03', 'S07', 'S11', 'S15', 'S19']
 
-        mns = magnetName.split('-')
-        sector, girder, magnet = mns[0], mns[1], mns[2]
-
-        trans = np.array([1,2,3,4])
+        mns = magnet_name.split('-')
+        sector, girder, magnet_name = mns[0], mns[1], mns[2]
 
         # girder influenced by the sector type
         if (girder == 'B02' or girder == 'B03' or girder == 'B11' or girder == 'B01'):
@@ -346,220 +329,101 @@ class SR(Accelerator):
             if (sector in sectorA):
                 if (girder == 'B02' or girder == 'B01'):
                     # quad type: QFA
-                    if ('QUAD01' in magnet):
-                        unc = [0.0183, 0.0435, 0.023, 0.104]
-                elif (girder == 'B03' or girder == 'B11'):
-                    # quad type: QDA
-                    if ('QUAD01' in magnet):
-                        unc = [0.0189, 0.0434, 0.023, 0.104]
-                    # dipole
-                    elif ('B1' in magnet):
-                        unc = [0.0269, 0.0474, 0.023, 0.03]
-            # low-beta sectors (type B)
-            elif (sector in sectorB):
-                if (girder == 'B01'):
-                    # quad type: QFB
-                    if ('QUAD01' in magnet):
-                        unc = [0.0194, 0.0434, 0.023, 0.058]
-                    # quad type: QDB2
-                    elif ('QUAD02' in magnet):
-                        unc = [0.0195, 0.0433, 0.023, 0.104]
-                elif (girder == 'B02'):
-                    # quad type: QFB
-                    if ('QUAD02' in magnet):
-                        unc = [0.0194, 0.0434, 0.023, 0.058]
-                    # quad type: QDB2
-                    elif ('QUAD01' in magnet):
-                        unc = [0.0195, 0.0433, 0.023, 0.104]
-                elif (girder == 'B03' or girder == 'B11'):
-                    # quad type: QDB1
-                    if ('QUAD01' in magnet):
-                        unc = [0.019, 0.0435, 0.023, 0.104]
-                    # dipole
-                    elif ('B1' in magnet):
-                        unc = [0.0269, 0.0474, 0.023, 0.03]
-            # low-beta sectors (type P)
-            elif (sector in sectorP):
-                if (girder == 'B01'):
-                    # quad type: QFP
-                    if ('QUAD01' in magnet):
-                        unc = [0.0188, 0.0433, 0.023, 0.104]
-                    # quad type: QDP2
-                    elif ('QUAD02' in magnet):
-                        unc = [0.0189, 0.0435, 0.023, 0.104]
-                elif (girder == 'B02'):
-                    # quad type: QFP
-                    if ('QUAD02' in magnet):
-                        unc = [0.0188, 0.0433, 0.023, 0.104]
-                    # quad type: QDP2
-                    elif ('QUAD01' in magnet):
-                        unc = [0.0189, 0.0435, 0.023, 0.104]
-                elif (girder == 'B03' or girder == 'B11'):
-                    # quad type: QDP1
-                    if ('QUAD01' in magnet):
-                        unc = [0.0189, 0.0433, 0.023, 0.104]
-                    # dipole
-                    elif ('B1' in magnet):
-                        unc = [0.0269, 0.0474, 0.023, 0.03]
-
-        elif (girder == 'B04'):
-            # quad type: Q1
-            if ('QUAD01' in magnet):
-                unc = [0.0193, 0.0434, 0.023, 0.104]
-            # quad type: Q2
-            elif ('QUAD02' in magnet):
-                unc = [0.0188, 0.0435, 0.023, 0.104]
-        elif (girder == 'B05'):
-            # dipole
-            if ('B2' in magnet):
-                unc = [0.0269, 0.0474, 0.023, 0.03]
-        elif (girder == 'B06'):
-            # quad type: Q3
-            if ('QUAD01' in magnet):
-                unc = [0.019, 0.0436, 0.023, 0.104]
-            # quad type: Q4
-            elif ('QUAD02' in magnet):
-                unc = [0.0189, 0.0434, 0.023, 0.104]
-        elif (girder == 'B07'):
-            # dipole
-            if ('BC' in magnet):
-                unc = [0.0269, 0.0474, 0.023, 0.03]
-        elif (girder == 'B08'):
-            # quad type: Q4
-            if ('QUAD01' in magnet):
-                unc = [0.0189, 0.0434, 0.023, 0.104]
-            # quad type: Q3
-            elif ('QUAD02' in magnet):
-                unc = [0.019, 0.0436, 0.023, 0.104]
-        elif (girder == 'B09'):
-            # dipole
-            if ('B2' in magnet):
-                unc = [0.0269, 0.0474, 0.023, 0.03]
-        elif (girder == 'B10'):
-            # quad type: Q2
-            if ('QUAD01' in magnet):
-                unc = [0.0188, 0.0435, 0.023, 0.104]
-            # quad type: Q1
-            elif ('QUAD02' in magnet):
-                unc = [0.0193, 0.0434, 0.023, 0.104]
-        
-        if (uncOrTrans == 'unc'):
-            output = unc[DOF_num]
-        else:
-            output = trans
-
-        return output
-
-    @staticmethod
-    def checkMagnetFamily(magnet):
-        sectorA = ['S01', 'S05', 'S09', 'S13', 'S17']
-        sectorB = ['S02', 'S04', 'S06', 'S08', 'S10', 'S12', 'S14', 'S16', 'S18', 'S20']
-        sectorP = ['S03', 'S07', 'S11', 'S15', 'S19']
-
-        mns = magnet.split('-')
-        sector, girder, magnet = mns[0], mns[1], mns[2]
-
-        # girder influenced by the sector type
-        if (girder == 'B02' or girder == 'B03' or girder == 'B11' or girder == 'B01'):
-            # high-beta sectors (type A)
-            if (sector in sectorA):
-                if (girder == 'B02' or girder == 'B01'):
-                    # quad type: QFA
-                    if ('QUAD01' in magnet):
+                    if ('QUAD01' in magnet_name):
                         family = 'QFA'
                 elif (girder == 'B03' or girder == 'B11'):
                     # quad type: QDA
-                    if ('QUAD01' in magnet):
+                    if ('QUAD01' in magnet_name):
                         family = 'QDA'
                     # dipole
-                    elif ('B1' in magnet):
+                    elif ('B1' in magnet_name):
                         family = 'dipole-B1'
             # low-beta sectors (type B)
             elif (sector in sectorB):
                 if (girder == 'B01'):
                     # quad type: QFB
-                    if ('QUAD01' in magnet):
+                    if ('QUAD01' in magnet_name):
                         family = 'QFB'
                     # quad type: QDB2
-                    elif ('QUAD02' in magnet):
+                    elif ('QUAD02' in magnet_name):
                         family = 'QDB2'
                 elif (girder == 'B02'):
                     # quad type: QFB
-                    if ('QUAD02' in magnet):
+                    if ('QUAD02' in magnet_name):
                         family = 'QFB'
                     # quad type: QDB2
-                    elif ('QUAD01' in magnet):
+                    elif ('QUAD01' in magnet_name):
                         family = 'QDB2'
                 elif (girder == 'B03' or girder == 'B11'):
                     # quad type: QDB1
-                    if ('QUAD01' in magnet):
+                    if ('QUAD01' in magnet_name):
                         family = 'QDB1'
                     # dipole
-                    elif ('B1' in magnet):
+                    elif ('B1' in magnet_name):
                         family = 'dipole-B1'
             # low-beta sectors (type P)
             elif (sector in sectorP):
                 if (girder == 'B01'):
                     # quad type: QFP
-                    if ('QUAD01' in magnet):
+                    if ('QUAD01' in magnet_name):
                         family = 'QFP'
                     # quad type: QDP2
-                    elif ('QUAD02' in magnet):
+                    elif ('QUAD02' in magnet_name):
                         family = 'QDP2'
                 elif (girder == 'B02'):
                     # quad type: QFP
-                    if ('QUAD02' in magnet):
+                    if ('QUAD02' in magnet_name):
                         family = 'QFP'
                     # quad type: QDP2
-                    elif ('QUAD01' in magnet):
+                    elif ('QUAD01' in magnet_name):
                         family = 'QDP2'
                 elif (girder == 'B03' or girder == 'B11'):
                     # quad type: QDP1
-                    if ('QUAD01' in magnet):
+                    if ('QUAD01' in magnet_name):
                         family = 'QDP1'
                     # dipole
-                    elif ('B1' in magnet):
+                    elif ('B1' in magnet_name):
                         family = 'dipole-B1'
 
         elif (girder == 'B04'):
             # quad type: Q1
-            if ('QUAD01' in magnet):
+            if ('QUAD01' in magnet_name):
                 family = 'Q1'
             # quad type: Q2
-            elif ('QUAD02' in magnet):
+            elif ('QUAD02' in magnet_name):
                 family = 'Q2'
         elif (girder == 'B05'):
             # dipole
-            if ('B2' in magnet):
+            if ('B2' in magnet_name):
                 family = 'dipole-B2'
         elif (girder == 'B06'):
             # quad type: Q3
-            if ('QUAD01' in magnet):
+            if ('QUAD01' in magnet_name):
                 family = 'Q3'
             # quad type: Q4
-            elif ('QUAD02' in magnet):
+            elif ('QUAD02' in magnet_name):
                 family = 'Q4'
         elif (girder == 'B07'):
             # dipole
-            if ('BC' in magnet):
+            if ('BC' in magnet_name):
                 family = 'dipole-BC'
         elif (girder == 'B08'):
             # quad type: Q4
-            if ('QUAD01' in magnet):
+            if ('QUAD01' in magnet_name):
                 family = 'Q4'
             # quad type: Q3
-            elif ('QUAD02' in magnet):
+            elif ('QUAD02' in magnet_name):
                 family = 'Q3'
         elif (girder == 'B09'):
             # dipole
-            if ('B2' in magnet):
+            if ('B2' in magnet_name):
                 family = 'dipole-B2'
         elif (girder == 'B10'):
             # quad type: Q2
-            if ('QUAD01' in magnet):
+            if ('QUAD01' in magnet_name):
                 family = 'Q2'
             # quad type: Q1
-            elif ('QUAD02' in magnet):
+            elif ('QUAD02' in magnet_name):
                 family = 'Q1'
 
         return family

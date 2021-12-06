@@ -1,7 +1,11 @@
+from typing import List
 from geom_entitites.transformation import Transformation
 
 
-class Magnet(object):
+class Magnet:
+    """ Class containing implementation for the a Magnet abstraction, which
+        will hold meta data and the list of points that belongs to it. """
+
     def __init__(self, name, type, parent_ref):
         self.name = name
         self.points = {}
@@ -9,18 +13,26 @@ class Magnet(object):
         self.parent_ref = parent_ref
         self.shift = 0
 
-    def transformFrame(self, targetFrame):
-        # iterate over points and transform then
-        for point in self.points:
-            self.points[point].changeFrame(targetFrame)
+    def change_frame(self, target_frame):
+        """ Changes the frame of its points. """
 
-    def addPoint(self, point):
+        # iterate over points and transform then
+        for point in self.points.values():
+            point.changeFrame(target_frame)
+
+    def add_point(self, point):
+        """ Adds points to its dict of points. """
+
         self.points[point.name] = point
 
-    def get_ordered_points_coords(self) -> list:
-        # sorting list of magnet names
-        point_names_sorted = sorted(self.points.keys())
-                
-        sortedPointDict = {k: self.points[k] for k in point_names_sorted}
+    def get_ordered_points_coords(self) -> List[list]:
+        """ Provides a list of coordinates of its points in a sorted order. """
 
-        return [sortedPointDict[point].coord_list for point in sortedPointDict]
+        # sorting list of point names
+        point_names_sorted = sorted(self.points.keys())
+        
+        # generating the sorted version of the dict of points
+        sorted_point_dict = {k: self.points[k] for k in point_names_sorted}
+
+        # returning the coordinate list of each point of the sorted dict
+        return [sorted_point_dict[point].coord_list for point in sorted_point_dict]

@@ -1,23 +1,29 @@
 from geom_entitites.transformation import Transformation
 
 
-class Frame(object):
-    def __init__(self, name, homogeneosTransf):
+class Frame:
+    """ Class containing implementation of a frame (coordinate system) abstraction. """
+
+    def __init__(self, name: str, homogeneos_transf: Transformation) -> None:
         self.name = name
-        self.transformation = homogeneosTransf
+        self.transformation = homogeneos_transf
 
     def __str__(self) -> str:
         return f'Frame[{self.name}, {self.transformation}]'
 
     @staticmethod
-    def changeFrame(frameFrom, frameTo, pointDict):
-        transformation = Transformation.evaluateTransformation(frameFrom, frameTo)
+    def change_frame(frame_from, frame_to, points: dict) -> None:
+        """ Changes the frame from a set of given points """
 
-        # iterating over magnet's points and transforming then to the new frame
-        for pointName in pointDict:
-            point = pointDict[pointName]
-            point.transform(transformation, frameTo.name)
+        transformation = Transformation.evaluateTransformation(frame_from, frame_to)
+
+        # iterating over point and transforming then to the new frame
+        for point in points.values():
+            point.transform(transformation, frame_to.name)
 
     @staticmethod
     def machine_local():
+        """ Returns a instance of a machine-local frame, which is simply 
+            a frame on the zero of the global coordinate system. """
+
         return Frame('machine-local', Transformation('machine-local', 'machine-local', 0, 0, 0, 0, 0, 0))

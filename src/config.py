@@ -1,6 +1,8 @@
+# flag to enable some printing for debugging
 DEBUG_MODE = False
 
-ptsNomFileName = {
+# dict with file paths of the files containing nominals points
+NOM_POINTS_FILE_NAMES = {
         "booster": "../data/input/booster-pontos-nominais.txt", 
         "SR": "../data/input/anel-pontos-nominais.txt",
         "LTB": "",
@@ -8,7 +10,8 @@ ptsNomFileName = {
         "FE": ""
 }
 
-ptsMeasFileName = {
+# dict with file paths of the files containing measured points
+MEAS_POINTS_FILE_NAMES = {
         "booster": "../data/input/booster-pontos-medidos.txt", 
         "SR": "../data/input/anel-pontos-medidos.txt",
         "LTB": "",
@@ -16,7 +19,8 @@ ptsMeasFileName = {
         "FE": ""
 }
 
-lookupFileName = {
+# dict with file paths of the files containing the mapping between machine-local and magnets-specific nominal frames
+FRAMES_LOOKUPTABLE_FILE_NAMES = {
         "booster": "../data/input/booster-frames.csv",
         "SR": "../data/input/anel-frames.csv",
         "LTB": "",
@@ -24,7 +28,16 @@ lookupFileName = {
         "FE": ""
 }
 
-shiftsB1 = {
+# output default path
+OUTPUT_PATH = "../data/output"
+
+# uncertainties for magnet points inside radiation shielding calculated with Monte Carlo 
+# analysis per degree of freedom. Format is: [u_tx, u_ty, u_tz, u_rz]
+POINTS_UNCERTAINTIES = [0.018, 0.043, 0.023, 0.026]
+
+# offsets of the real magnetic center of the B1 magnets (in the intersection of the in and out lines)
+# in relation to its nominal position. All data were measured and imported from local documentation.
+OFFSETS_B1 = {
   "S01-B03-B1-LONG": -0.21939260387942738,"S01-B11-B1-LONG": 0.5027928637375751,
   "S02-B03-B1-LONG": -0.6566497181853421,"S02-B11-B1-LONG": 0.3949965569748386,
   "S03-B03-B1-LONG": -0.20433956473073067,"S03-B11-B1-LONG": 0.43980701894961527,

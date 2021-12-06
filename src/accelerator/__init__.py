@@ -11,12 +11,16 @@ from geom_entitites.point import Point
 
 from geom_entitites.transformation import Transformation
 from geom_entitites.frame import Frame
-from operations.geometrical import evaluateDeviation
+from operations.geometrical import evaluate_deviation_with_bestfit
 
-from ui.ui import Ui
+from ui import Ui
 
 
 class Accelerator(ABC):
+    """ Abstract base class of the Accelerators, with methods common to
+        all of the concrete accelerator classes, abstract methods already
+        implemented (default implementation) and methods to be implemented """
+
     def __init__(self, name: str) -> None:
         super().__init__()
         self.name = name
@@ -47,7 +51,7 @@ class Accelerator(ABC):
         magnets_not_affected = ""
         for magnet in self.magnets[type_of_points].values():
             try:
-                magnet.transformFrame(self.frames['nominal'][magnet.name])
+                magnet.change_frame(self.frames['nominal'][magnet.name])
             except KeyError:
                 magnets_not_affected += magnet.name + ','
 
@@ -119,7 +123,7 @@ class Accelerator(ABC):
             frame_nom = self.frames['nominal'][frame_meas.name]
 
             # evaluating transformation between frames and then extracting the deviation from its transformation matrix
-            transformation = Transformation.evaluateTransformation(initialFrame=frame_meas, targetFrame=frame_nom)
+            transformation = Transformation.evaluateTransformation(initial_frame=frame_meas, target_frame=frame_nom)
             deviation = Transformation.individualDeviationsFromEquations(transformation)
 
             deviation.insert(0, frame_meas.name)
@@ -209,7 +213,7 @@ class Accelerator(ABC):
         # defining degress of freedom for the best-fit operation
         dofs = ['Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz']
         # calling method to do the best-fit and evaluate deviation
-        deviation = evaluateDeviation(points['measured'], points['nominal'], dofs)
+        deviation = evaluate_deviation_with_bestfit(points['measured'], points['nominal'], dofs)
 
         # as we now have the transformation between magnet-measured and magnet-nominal, to know
         # the relation between machine-local and magnet-measured we have to treat transformations
@@ -256,11 +260,11 @@ class Accelerator(ABC):
                 # reference to the Magnet object
                 magnet = self.magnets[type_of_points][point_info['magnetName']]
                 # append point into its point list
-                magnet.addPoint(point)
+                magnet.add_point(point)
             else:
                 # instantiate new Magnet object
                 magnet = Magnet(point_info['magnetName'], point_info['magnetType'], point_info['location'])
-                magnet.addPoint(point)
+                magnet.add_point(point)
                 # including in data structure
                 self.magnets[type_of_points][point_info['magnetName']] = magnet
 

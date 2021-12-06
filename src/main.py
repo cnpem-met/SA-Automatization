@@ -1,4 +1,3 @@
-# imports de bibliotecas
 import config
 
 from accelerator import Accelerator
@@ -8,46 +7,33 @@ from accelerator.ltb import LTB
 from accelerator.bts import BTS
 from accelerator.frontend import FE
 
-from operations.geometrical import calculateMagnetsRelativeDeviations
-from operations.misc import generateReport, separateFEsData
-from operations.plot import plotDevitationData, plotComparativeDeviation, plotRelativeDevitationData
-from operations.io import writeToExcel, readExcel, readCSV
-from ui.ui import Ui
+from operations.misc import generate_report, separate_frontend_data
+from operations.plot import plot_magnets_absolute_deviation
+from operations.io import write_to_excel, read_excel, read_csv
+
+from ui import Ui
 
 from PyQt5.QtWidgets import QApplication
-
 import sys
-import json
-import pandas as pd
 
 class App(QApplication):
     def __init__(self):
         # Initializing the application and its UI
         super(App, self).__init__(sys.argv)
 
-        self.initAppVariables()
+        self.init_app_variables()
 
         # Calling the UI component
         self.ui = Ui(self)
 
-        # Changuing the default window theme
-        # self.setStyle('Fusion')
-
         # Calling the app to execute
         sys.exit(self.exec_())
 
-    def initAppVariables(self):
-        self.lookupTable = {}
-        self.measured = {}
-        self.nominals = {}
-        self.entitiesDictMeas = {}
-        self.entitiesDictNom = {}
-        self.frameDict = {}
-
-        self.accelerators = {"SR": SR('SR'), "booster": Booster('booster'), "LTB": LTB('LTB'), "BTS": BTS('BTS'), "FE": FE('FE')}
-
-
-        self.shiftsB1 = None
+    def init_app_variables(self) -> None:
+        """ Initializes app level variables. """
+        
+        # init classes specific to each accelerator and stores in a dict for easy access
+        self.accelerators = {"SR": SR(), "booster": Booster(), "LTB": LTB(), "BTS": BTS(), "FE": FE()}
 
         # flags
         self.isNominalsLoaded = {"SR": False, "booster": False, "LTB": False, "BTS": False, "FE": False}
@@ -63,188 +49,220 @@ class App(QApplication):
         # report info
         self.report = {}
 
-    def loadEnv(self):
+    def load_env(self) -> None:
+        """ Loads environment info and files from the config file. """
+
         # with open("config.json", "r") as file:
         #     config = json.load(file)
 
-        self.accelerators['SR'].shiftsB1 = config.shiftsB1
+        # loads B1 shifts and save on SR class parameter
+        self.accelerators['SR'].shiftsB1 = config.OFFSETS_B1
 
-        self.loadNominalsFile('booster', filePath=config.ptsNomFileName['booster'])
-        self.loadNominalsFile('SR', filePath=config.ptsNomFileName['SR'])
-        self.loadNominalsFile('LTB', filePath=config.ptsNomFileName['LTB'])
-        self.loadNominalsFile('BTS', filePath=config.ptsNomFileName['BTS'])
-        self.loadNominalsFile('FE', filePath=config.ptsNomFileName['FE'])
+        # loads files containing the list of all the nominal points 
+        self.load_nominals_file('booster', file_path=config.NOM_POINTS_FILE_NAMES['booster'])
+        self.load_nominals_file('SR', file_path=config.NOM_POINTS_FILE_NAMES['SR'])
+        self.load_nominals_file('LTB', file_path=config.NOM_POINTS_FILE_NAMES['LTB'])
+        self.load_nominals_file('BTS', file_path=config.NOM_POINTS_FILE_NAMES['BTS'])
+        self.load_nominals_file('FE', file_path=config.NOM_POINTS_FILE_NAMES['FE'])
 
-        self.loadMeasuredFile('booster', filePath=config.ptsMeasFileName['booster'])
-        self.loadMeasuredFile('SR', filePath=config.ptsMeasFileName['SR'])
-        self.loadMeasuredFile('LTB', filePath=config.ptsMeasFileName['LTB'])
-        self.loadMeasuredFile('BTS', filePath=config.ptsMeasFileName['BTS'])
-        self.loadMeasuredFile('FE', filePath=config.ptsMeasFileName['FE'])
+        # loads files containing the list of all the measured points 
+        self.load_measured_file('booster', file_path=config.MEAS_POINTS_FILE_NAMES['booster'])
+        self.load_measured_file('SR', file_path=config.MEAS_POINTS_FILE_NAMES['SR'])
+        self.load_measured_file('LTB', file_path=config.MEAS_POINTS_FILE_NAMES['LTB'])
+        self.load_measured_file('BTS', file_path=config.MEAS_POINTS_FILE_NAMES['BTS'])
+        self.load_measured_file('FE', file_path=config.MEAS_POINTS_FILE_NAMES['FE'])
 
-        self.loadLookuptableFile('booster', filePath=config.lookupFileName['booster'])
-        self.loadLookuptableFile('SR', filePath=config.lookupFileName['SR'])
-        self.loadLookuptableFile('LTB', filePath=config.lookupFileName['LTB'])
-        self.loadLookuptableFile('BTS', filePath=config.lookupFileName['BTS'])
-        self.loadLookuptableFile('FE', filePath=config.lookupFileName['FE'])
+        # loads files containing the mapping between the machine-local and magnet-specific nominal frames
+        self.loadLookuptableFile('booster', file_path=config.FRAMES_LOOKUPTABLE_FILE_NAMES['booster'])
+        self.loadLookuptableFile('SR', file_path=config.FRAMES_LOOKUPTABLE_FILE_NAMES['SR'])
+        self.loadLookuptableFile('LTB', file_path=config.FRAMES_LOOKUPTABLE_FILE_NAMES['LTB'])
+        self.loadLookuptableFile('BTS', file_path=config.FRAMES_LOOKUPTABLE_FILE_NAMES['BTS'])
+        self.loadLookuptableFile('FE', file_path=config.FRAMES_LOOKUPTABLE_FILE_NAMES['FE'])
 
-    def exportLongitudinalDistances(self, acc_name):
-        longDistMeas = self.accelerators[acc_name].evaluate_magnets_long_inter_distances('measured')
-        longDistNom = self.accelerators[acc_name].evaluate_magnets_long_inter_distances('nominal')
+    def export_longitudinal_distances(self, acc_name: str) -> None:
+        """ Saves the longitudinal inter distance between adjacent magnets to a .xlsx file.  """
 
-        writeToExcel("../data/output/long-distances-measured.xlsx", longDistMeas, acc_name)
-        writeToExcel("../data/output/long-distances-nominal.xlsx", longDistNom, acc_name)
+        long_dist_meas = self.accelerators[acc_name].evaluate_magnets_long_inter_distances('measured')
+        long_dist_nom = self.accelerators[acc_name].evaluate_magnets_long_inter_distances('nominal')
 
-    def exportAbsoluteDeviations(self, acc_name):
-        writeToExcel(f"../data/output/deviations-{acc_name}.xlsx", self.accelerators[acc_name].deviations, acc_name)
+        write_to_excel(f'{config.OUTPUT_PATH}/long-distances-measured.xlsx', long_dist_meas, acc_name)
+        write_to_excel(f'{config.OUTPUT_PATH}/long-distances-nominal.xlsx', long_dist_nom, acc_name)
 
-    def saveEnv(self):
+    def export_absolute_deviations(self, acc_name: str) -> None:
+        """ Saves the overall deviations of each magnet to a .xlsx file. """
+
+        write_to_excel(f"{config.OUTPUT_PATH}/deviations-{acc_name}.xlsx", self.accelerators[acc_name].deviations, acc_name)
+
+    def save_env(self) -> None:
+        """ Saves environment variables to file. This function is currently disabled because no json file
+            is being used in the current version of the program, but can be reinserted in the future. """
+
+        self.ui.log_message('Variáveis de ambiente não são mais salvas, recurso desabilitado.', severity='danger')
+
         # with open("config.json", "w") as file:
         #     config = {'ptsNomFileName': {"booster": self.ptsNomFileName['booster'], "SR": self.ptsNomFileName['SR'], "LTB": self.ptsNomFileName['LTB'], "BTS": self.ptsNomFileName['BTS'], "FE": self.ptsNomFileName['FE']},
         #               'ptsMeasFileName': {"booster": self.ptsMeasFileName['booster'], "SR": self.ptsMeasFileName['SR'], "LTB": self.ptsMeasFileName['LTB'], "BTS": self.ptsMeasFileName['BTS'], "FE": self.ptsMeasFileName['FE']},
         #               'lookupTable': {"booster": self.lookupTable['booster'], "SR": self.lookupTable['SR'], "LTB": self.lookupTable['LTB'], "BTS": self.lookupTable['BTS'], "FE": self.lookupTable['FE']},
         #               'shiftsB1': self.accelerators['SR'].shiftsB1}
         #     json.dump(config, file)
-        pass
 
-    def loadNominalsFile(self, acc_name, filePath=None):
+    def load_nominals_file(self, acc_name: str, file_path:str = None) -> None:
+        """ Loads files with list of nominal points and saves it in the form
+            of a DataFrame into the associated accelerator object. """
 
-        if(filePath == ""):
+        # ignoring empty fields in env file
+        if(file_path == ""):
             return
 
-        filepath = filePath or self.ui.openFileNameDialog('pontos nominais', acc_name)
+        # prompting a file dialog
+        filepath = file_path or self.ui.open_file_dialog('pontos nominais', acc_name)
 
-        if(not filepath or filePath == ""):
+        # ignoring if user not selected any file
+        if(not filepath or file_path == ""):
             return
 
-        fileName = filepath.split('/')[len(filepath.split('/')) - 1]
-        fileExtension = fileName.split('.')[1]
+        # treating the filepath
+        file_name = filepath.split('/')[len(filepath.split('/')) - 1]
+        file_extension = file_name.split('.')[1]
 
-        if (fileExtension == 'txt' or fileExtension == 'csv' or fileExtension == 'TXT' or fileExtension == 'CSV'):
-            nominals = readCSV(filepath, 'points')
-        elif (fileExtension == 'xlsx'):
-            nominals = readExcel(
-                filepath, 'points')
+        # reading file
+        if (file_extension == 'txt' or file_extension == 'csv' or file_extension == 'TXT' or file_extension == 'CSV'):
+            nominals = read_csv(filepath, 'points')
+        elif (file_extension == 'xlsx'):
+            nominals = read_excel(filepath, 'points')
         else:
-            self.ui.logMessage("Formato do arquivo "+fileName+" não suportado.", severity="alert")
+            self.ui.log_message(f"Formato do arquivo {file_name} não suportado.", severity="alert")
             return
 
-        # gerando grupos de pontos
-        self.nominals[acc_name] = nominals
+        # saving data into accelerator
         self.accelerators[acc_name].points['nominal'] = nominals
 
+        # updating app flags
         self.isNominalsLoaded[acc_name] = True
         self.ptsNomFileName[acc_name] = filepath
         
-        self.ui.update_nominals_indicator(acc_name, fileName)
-        self.ui.logMessage("Arquivo nominal do "+acc_name+" carregado.")
+        # ui calls
+        self.ui.update_nominals_indicator(acc_name, file_name)
+        self.ui.log_message("Arquivo nominal do "+acc_name+" carregado.")
 
-        self.checkAllFilesAndProcessData(acc_name)
+        # checks if all required data were loaded
+        self.chack_all_files_and_process(acc_name)
 
-    def loadMeasuredFile(self, accelerator, filePath=None):
-        
-        if(filePath == ""):
+    def load_measured_file(self, acc_name: str, file_path=None) -> None:
+        """ Loads files with list of measured points and saves it in the form
+            of a DataFrame into the associated accelerator object. """
+
+        if(file_path == ""):
             return
 
-        filepath = filePath or self.openFileNameDialog('pontos medidos', accelerator)
+        filepath = file_path or self.openFileNameDialog('pontos medidos', acc_name)
 
         if(not filepath):
             return
 
-        fileName = filepath.split('/')[len(filepath.split('/')) - 1]
-        fileExtension = fileName.split('.')[1]
+        file_name = filepath.split('/')[len(filepath.split('/')) - 1]
+        file_extension = file_name.split('.')[1]
 
-        if (fileExtension == 'txt' or fileExtension == 'csv' or fileExtension == 'TXT' or fileExtension == 'CSV'):
-            measured = readCSV(filepath, 'points')
-        elif (fileExtension == 'xlsx'):
-            measured = readExcel(
-                filepath, 'points')
+        if (file_extension == 'txt' or file_extension == 'csv' or file_extension == 'TXT' or file_extension == 'CSV'):
+            measured = read_csv(filepath, 'points')
+        elif (file_extension == 'xlsx'):
+            measured = read_excel(filepath, 'points')
         else:
-            self.ui.logMessage("Formato do arquivo "+fileName+" não suportado.", severity="alert")
+            self.ui.log_message("Formato do arquivo "+file_name+" não suportado.", severity="alert")
             return
 
-        self.measured[accelerator] = measured
-        self.accelerators[accelerator].points['measured'] = measured
+        self.accelerators[acc_name].points['measured'] = measured
 
-        self.isMeasuredLoaded[accelerator] = True
+        self.isMeasuredLoaded[acc_name] = True
+        self.ptsMeasFileName[acc_name] = filepath
 
-        self.ui.update_measured_indicator(accelerator, fileName)
+        self.ui.update_measured_indicator(acc_name, file_name)
+        self.ui.log_message("Arquivo com medidos do "+acc_name+" carregado.")
 
-        self.ptsMeasFileName[accelerator] = filepath
+        self.chack_all_files_and_process(acc_name)
 
-        self.ui.logMessage("Arquivo com medidos do "+accelerator+" carregado.")
+    def loadLookuptableFile(self, acc_name: str, file_path=None) -> None:
+        """ Loads files with list of mapping between the machine-local and the
+            magnet-specific nominal frame, and saves it in the form
+            of a DataFrame into the associated accelerator object. """
 
-        self.checkAllFilesAndProcessData(accelerator)
-
-    def loadLookuptableFile(self, accelerator, filePath=None):
-        
-        if(filePath == ""):
+        if(file_path == ""):
             return
 
-        filepath = filePath or self.openFileNameDialog('lookup de frames', accelerator)
+        filepath = file_path or self.openFileNameDialog('lookup de frames', acc_name)
 
         if(not filepath):
             return
 
-        fileName = filepath.split('/')[len(filepath.split('/')) - 1]
-        fileExtension = fileName.split('.')[1]
+        file_name = filepath.split('/')[len(filepath.split('/')) - 1]
+        file_extension = file_name.split('.')[1]
 
-        if (fileExtension == 'txt' or fileExtension == 'csv' or fileExtension == 'TXT' or fileExtension == 'CSV'):
-            lookuptable = readCSV(filepath, 'lookuptable')
-        elif (fileExtension == 'xlsx'):
-            lookuptable = readExcel(
-                filepath, 'lookuptable')
+        if (file_extension == 'txt' or file_extension == 'csv' or file_extension == 'TXT' or file_extension == 'CSV'):
+            lookuptable = read_csv(filepath, 'lookuptable')
+        elif (file_extension == 'xlsx'):
+            lookuptable = read_excel(filepath, 'lookuptable')
         else:
-            self.ui.logMessage("Format of file "+fileName+"not supported.")
+            self.ui.log_message("Format of file "+file_name+"not supported.")
             return
 
-        self.lookupTable[accelerator] = lookuptable
-        self.accelerators[accelerator].ml_to_nominal_frame_mapping = lookuptable
+        self.accelerators[acc_name].ml_to_nominal_frame_mapping = lookuptable
 
-        self.isLookuptableLoaded[accelerator] = True
+        self.isLookuptableLoaded[acc_name] = True
+        self.lookupFileName[acc_name] = filepath
         
-        self.ui.update_lookup_indicator(accelerator, fileName)
+        self.ui.update_lookup_indicator(acc_name, file_name)
+        self.ui.log_message("Lookuptable de frames do " + acc_name + " carregada.")
 
-        self.lookupFileName[accelerator] = filepath
+        self.chack_all_files_and_process(acc_name)
 
-        self.ui.logMessage("Lookuptable de frames do " + accelerator + " carregada.")
+    def chack_all_files_and_process(self, acc_name: str) -> None:
+        """ Checks the internal flags to see if all files needed to process the 
+            raw data were loaded, and if so triggers the processing.  """
 
-        self.checkAllFilesAndProcessData(accelerator)
-
-    def checkAllFilesAndProcessData(self, acc_name):
-        # se todos os arquivos tiverem sido carregados
         if((self.isNominalsLoaded[acc_name] and self.isMeasuredLoaded[acc_name] and self.isLookuptableLoaded[acc_name])):
-            self.ui.logMessage("Transformando pontos do " + acc_name + " para os frames locais...")
+            self.ui.log_message(f"Transformando pontos do {acc_name} para os frames locais...")
             self.processEvents()
 
             accelerator = self.accelerators[acc_name]
-            self.processInternalData(accelerator)
+            self.process_raw_data(accelerator)
 
             self.isInternalDataProcessed[acc_name] = True
-            self.ui.logMessage("Dados do "+acc_name+" prontos.", severity="sucess")
+            self.ui.log_message(f"Dados do {acc_name} prontos.", severity="sucess")
 
-    def processInternalData(self, accelerator: Accelerator):
+    def process_raw_data(self, accelerator: Accelerator) -> None:
+        """ Handles the flux of calls for calculating the accelerator's magnets deviations. """
 
-            accelerator.create_nominal_frames()
-            accelerator.populate_magnets_with_points('nominal')
-            accelerator.populate_magnets_with_points('measured')
+        # nominal frames are first created, based on mapping from input file
+        accelerator.create_nominal_frames()
+        
+        # magnets are then populated with points that were also loaded from input files
+        accelerator.populate_magnets_with_points('nominal')
+        accelerator.populate_magnets_with_points('measured')
 
-            accelerator.change_to_local_frame('nominal')
-            accelerator.change_to_local_frame('measured')
+        # all nominal and measured points are transformed to be referenced in its magnets nominal frame
+        accelerator.change_to_local_frame('nominal')
+        accelerator.change_to_local_frame('measured')
 
-            accelerator.calculate_measured_frames(self.ui, magnet_types_to_ignore=['sextupole'])
+        # measured frames are then calculated
+        accelerator.calculate_measured_frames(self.ui, magnet_types_to_ignore=['sextupole'])
 
-            accelerator.sort_frames_by_beam_trajectory('nominal')
-            accelerator.sort_frames_by_beam_trajectory('measured')
+        # frames needs to be correctly sorted to present deviations in the right order
+        accelerator.sort_frames_by_beam_trajectory('nominal')
+        accelerator.sort_frames_by_beam_trajectory('measured')
 
-            self.report[accelerator.name] = generateReport(accelerator.frames['measured'], accelerator.frames['nominal'])
+        # finally, calculates the magnets deviations
+        if accelerator.evaluate_magnets_deviations():
+            self.ui.enable_plot_button(accelerator.name)
+        else:
+            self.ui.log_message(f'Plot não foi possível para {accelerator.name} devido a ausência de frames medidos e/ou nominais.', severity='danger')
 
-            if accelerator.evaluate_magnets_deviations():
-                self.ui.enable_plot_button(accelerator.name)
-            else:
-                self.ui.logMessage(f'Plot não foi possível para {accelerator.name} devido a ausência de frames medidos e/ou nominais.', severity='danger')
+        # update report for user control
+        self.report[accelerator.name] = generate_report(accelerator.frames['measured'], accelerator.frames['nominal'])
 
-    def plotAbsolute(self, acc_name):
-        self.ui.logMessage("Plotando o perfil de alinhamento absoluto do "+acc_name+"...")
+    def plot_absolute_deviations(self, acc_name: str) -> None:
+        """ Call the plot function to display absolute deviation data in a predefined template. """
+
+        self.ui.log_message(f"Plotando o perfil de alinhamento absoluto do {acc_name}...")
         self.processEvents()
 
         deviations = []
@@ -253,64 +271,28 @@ class App(QApplication):
             deviations.append(self.accelerators['LTB'].deviations)
             deviations.append(self.accelerators['BTS'].deviations)
         elif(acc_name == 'FE'):
-            deviations.append(separateFEsData(self.accelerators[acc_name].deviations, ['MAN', 'EMA', 'CAT']))
-            deviations.append(separateFEsData(self.accelerators[acc_name].deviations, ['IPE', 'CAR', 'MOG']))
+            deviations.append(separate_frontend_data(self.accelerators[acc_name].deviations, ['MAN', 'EMA', 'CAT']))
+            deviations.append(separate_frontend_data(self.accelerators[acc_name].deviations, ['IPE', 'CAR', 'MOG']))
         else:
             deviations.append(self.accelerators[acc_name].deviations)
-            if (acc_name == 'SR'):
-                # appending in df B1's transversal deviations
-                # deviations[0] = SR.calcB1PerpendicularTranslations(deviations[0], self.entitiesDictMeas['SR'], self.entitiesDictNom['SR'], self.frameDict['SR'])
-                # deviations[0] = SR.addTranslationsFromMagnetMeasurements(deviations[0])
-                pass
 
         plotArgs = self.ui.get_plot_args_from_ui(acc_name)
 
         if (acc_name == 'FE'):
             plotArgs['FElist'] = ['MANACÁ', 'EMA', 'CATERETÊ']
-            plotDevitationData(deviations[0], **plotArgs)
+            plot_magnets_absolute_deviation(deviations[0], **plotArgs)
             plotArgs['FElist'] = ['IPÊ', 'CARNAÚBA', 'MOGNO']
-            plotDevitationData(deviations[1], **plotArgs)
+            plot_magnets_absolute_deviation(deviations[1], **plotArgs)
         else:
-            plotDevitationData(deviations, **plotArgs)
+            plot_magnets_absolute_deviation(deviations, **plotArgs)
 
-    def plotComparativeDev(self):
-        self.ui.logMessage("Plotando o perfil de alinhamento de todo os aceleradores...")
-        self.processEvents()
-
-        deviation = [self.accelerators['LTB'].deviations, self.accelerators['booster'].deviations, self.accelerators['BTS'].deviations, self.accelerators['SR'].deviations]
-
-        sizes = [deviation[0].iloc[:, 0].size, deviation[1].iloc[:, 0].size, deviation[2].iloc[:, 0].size]
-        lenghts = [sizes[0], sizes[1] + sizes[0], sizes[2] + sizes[1] + sizes[0]]
-
-        deviations = pd.concat(deviation)
-
-        plotArgs = self.ui.get_plot_args_from_ui('SR')
-
-        plotComparativeDeviation(deviations, **plotArgs)
-
-    def plotRelative(self, accelerator):
-        self.ui.logMessage("Plotando o perfil de alinhamento relativo do "+accelerator+"...")
-        self.processEvents()
-
-        # checando se todos os arquivos foram devidamente carregados
-        if(not self.isNominalsLoaded[accelerator] or not self.isMeasuredLoaded[accelerator] or not self.isLookuptableLoaded[accelerator]):
-            self.ui.logMessage("Erro ao plotar gráfico: nem todos os arquivos foram carregados")
-            return
-
-        magnetsDeviations = calculateMagnetsRelativeDeviations(self.frameDict[accelerator])
-
-        # writeToExcel('../data/output/sr-devs.xlsx', magnetsDeviations)
-        plotRelativeDevitationData(magnetsDeviations, accelerator)
 
 if __name__ == "__main__":
     App()
 
 """ 
 PENDÊNCIAS
-- segregar plots dos FEs
 - corrigir ordem dos imãs do Booster, LTB, BTS e FE
-- LIMPAR CÓDIGO!!
-- subir versão limpa no github
 - [modelo liu - long.] avaliação de distancias entre dipolos e quadrupolos 
 - [modelo liu - vert.] avaliação individual de cada quadrupolo e dipolo
 - estimar série de fourier
