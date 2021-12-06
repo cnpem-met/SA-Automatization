@@ -83,7 +83,7 @@ class Accelerator(ABC):
 
             # calculating the transformation from the nominal points to the measured ones
             try:
-                transformation = self.calculate_nominal_to_measured_transformation(magnet_meas, points)
+                transformation = self.calculate_ML_to_local_measured_transformation(magnet_meas, points)
             except KeyError:
                 ui.logMessage(f'Falha no imã {magnet_meas.name}: frame medido do quadrupolo adjacente ainda não foi calculado.', severity='danger')
                 continue
@@ -202,7 +202,10 @@ class Accelerator(ABC):
         return {'measured': points_measured, 'nominal': points_nominal}
 
     @abstractmethod
-    def calculate_nominal_to_measured_transformation(self, magnet: Magnet, points: Dict[str, list]) -> Transformation:
+    def calculate_ML_to_local_measured_transformation(self, magnet: Magnet, points: Dict[str, list]) -> Transformation:
+        """ Calculates the transformation between the machine-local frame to 
+            the measured frame of the magnet (or local measured frame). """
+        
         # defining degress of freedom for the best-fit operation
         dofs = ['Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz']
         # calling method to do the best-fit and evaluate deviation
@@ -214,7 +217,7 @@ class Accelerator(ABC):
         local_transf = Transformation(magnet.name, magnet.name, *deviation)
         base_transf = self.frames['nominal'][magnet.name].transformation
 
-        # creating a transformation out of the 2
+        # calculating ML to magnet-measured frame relation from the base and local transformations
         transformation = Transformation.compose_transformations(base_transf, local_transf, 'machine-local', magnet.name)
         
         return transformation
@@ -225,12 +228,12 @@ class Accelerator(ABC):
             alphabetically sorted set of frame names. """
 
         # sorting in alphabetical order
-        keySortedList = sorted(self.frames[type_of_points])
-        sortedFrameDict = {}
-        for key in keySortedList:
-            sortedFrameDict[key] = self.frames[type_of_points][key]
+        sorted_keys = sorted(self.frames[type_of_points])
+        sorted_frame_dict = {}
+        for key in sorted_keys:
+            sorted_frame_dict[key] = self.frames[type_of_points][key]
 
-        self.frames[type_of_points] = sortedFrameDict
+        self.frames[type_of_points] = sorted_frame_dict
 
     @abstractmethod
     def populate_magnets_with_points(self, type_of_points: str) -> None:
@@ -241,7 +244,7 @@ class Accelerator(ABC):
 
             point_info = self.get_point_info(point_name)
 
-            # checks if point's nomenclature matched the expected 
+            # checks if point's nomenclature matched the expected
             if (not point_info['isCurrentAcceleratorPoint'] or not point_info['isValidPoint']):
                 continue
 
@@ -258,7 +261,7 @@ class Accelerator(ABC):
                 # instantiate new Magnet object
                 magnet = Magnet(point_info['magnetName'], point_info['magnetType'], point_info['location'])
                 magnet.addPoint(point)
-                # including on data structure
+                # including in data structure
                 self.magnets[type_of_points][point_info['magnetName']] = magnet
 
     @abstractmethod

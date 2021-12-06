@@ -1,3 +1,4 @@
+from typing import Dict
 from geom_entitites.magnet import Magnet
 from geom_entitites.point import Point
 from geom_entitites.transformation import Transformation
@@ -13,65 +14,78 @@ class SR(Accelerator):
     def __init__(self, name):
         super().__init__(name)
 
-    def populate_magnets_with_points(self, type_of_points):
-        # iterate over dataframe
-        for pointName, coordinate in self.points[type_of_points].iterrows():
-            
-            credentials = self.get_point_info(pointName)
+    def populate_magnets_with_points(self, type_of_points: str) -> None:
+        """ Creates magnets objects and populates it with loaded points. """
 
-            if (not credentials['isCurrentAcceleratorPoint'] or not credentials['isValidPoint']):
+        # iterating over loaded points
+        for point_name, coordinate in self.points[type_of_points].iterrows():
+            
+            point_info = self.get_point_info(point_name)
+
+            # checks if point's nomenclature matched the expected
+            if (not point_info['isCurrentAcceleratorPoint'] or not point_info['isValidPoint']):
                 continue
 
-            # instantiating a Point object
-            point = Point(credentials['pointName'], coordinate['x'], coordinate['y'], coordinate['z'], Frame.machine_local())
+            # creating a new Point object referenced in the ML frame
+            point = Point(point_info['pointName'], coordinate['x'], coordinate['y'], coordinate['z'], Frame.machine_local())
 
             # finding Magnet object or instantiating a new one
-            if (credentials['magnetName'] in self.magnets[type_of_points]):
+            if (point_info['magnetName'] in self.magnets[type_of_points]):
                 # reference to the Magnet object
-                magnet = self.magnets[type_of_points][credentials['magnetName']]
+                magnet = self.magnets[type_of_points][point_info['magnetName']]
                 # append point into its point list
                 magnet.addPoint(point)
-                # if B1 and measured, insert offset into magnets properties
-                if (type_of_points == 'measured' and credentials['magnetType'] == 'dipole-B1'):
-                    magnet.shift = self.shiftsB1[credentials['magnetName']]
+                # if type of magnet is B1 and point is measured, insert offset into magnets properties
+                if (type_of_points == 'measured' and point_info['magnetType'] == 'dipole-B1'):
+                    magnet.shift = self.shiftsB1[point_info['magnetName']]
             else:
                 # instantiate new Magnet object
-                magnet = Magnet(credentials['magnetName'], credentials['magnetType'], credentials['location'])
+                magnet = Magnet(point_info['magnetName'], point_info['magnetType'], point_info['location'])
                 magnet.addPoint(point)
-                if (type_of_points == 'measured' and credentials['magnetType'] == 'dipole-B1'):
-                    magnet.shift = self.shiftsB1[credentials['magnetName']]
-                # # including on data structure
-                self.magnets[type_of_points][credentials['magnetName']] = magnet
-            
-        self.reorderMagnets(type_of_points)
+                if (type_of_points == 'measured' and point_info['magnetType'] == 'dipole-B1'):
+                    magnet.shift = self.shiftsB1[point_info['magnetName']]
+                # including in data structure
+                self.magnets[type_of_points][point_info['magnetName']] = magnet
+        
+        # magnets has to be sorted in a special form (quads before B1 in the B03/B11 girders)
+        # because the calculation of measured frames of the B1 requires that measured quad
+        # has previously been calculated
+        self.sort_magnets_with_quads_before_b1(type_of_points)
 
-    def sort_frames_by_beam_trajectory(self, type_of_points):
-        # sorting in alphabetical order
-        keySortedList = sorted(self.frames[type_of_points])
-        sortedFrameDict = {}
-        for key in keySortedList:
-            sortedFrameDict[key] = self.frames[type_of_points][key]
+    def sort_frames_by_beam_trajectory(self, type_of_points: str) -> None:
+        """ Sort frame dict based on the beam trajectory. """
 
-        finalFrameDict = {}
-        b1FrameList = []
-        # correcting the case of S0xB03
-        for frameName in sortedFrameDict:
-            frame = sortedFrameDict[frameName]
+        # firstly sort frames in alphabetical order
+        sorted_keys = sorted(self.frames[type_of_points])
+        sorted_frame_dict = {}
+        for key in sorted_keys:
+            sorted_frame_dict[key] = self.frames[type_of_points][key]
+
+        # then we have to correct the case of S0xB03, i.e. exchange 
+        # B1 magnet with QUAD01, which comes first
+        final_frame_dict = {}
+        b03_frames = []
+        for frameName in sorted_frame_dict:
+            frame = sorted_frame_dict[frameName]
 
             if ('B03-B1' in frame.name):
-                b1FrameList.append(frame)
+                b03_frames.append(frame)
                 continue
 
-            finalFrameDict[frame.name] = frame
+            final_frame_dict[frame.name] = frame
 
             if ('B03-QUAD01' in frame.name):
-                for b1Frame in b1FrameList:
-                    finalFrameDict[b1Frame.name] = b1Frame
-                b1FrameList = []
+                for b03_frame in b03_frames:
+                    final_frame_dict[b03_frame.name] = b03_frame
+                b03_frames = []
 
-            self.frames[type_of_points] = finalFrameDict
+            self.frames[type_of_points] = final_frame_dict
 
-    def reorderMagnets(self, type_of_points):
+    def sort_magnets_with_quads_before_b1(self, type_of_points: str) -> None:
+        """ Sorts the magnet dict firstly in alphabetical order and then
+            exchange the order of the QUAD01 with the B1, once further calculations
+            of the B1 measured frame requires that the existance of the QUAD01 measured """
+
         # sorting list of magnet names
         magnet_names_sorted = sorted(self.magnets[type_of_points].keys())
 
@@ -86,22 +100,30 @@ class SR(Accelerator):
         # reordering magnet's dictionary based on the new order
         self.magnets[type_of_points] = {k: self.magnets[type_of_points][k] for k in magnet_names_sorted}
 
-    def get_points_to_bestfit(self, magnet_meas, magnet_nom):
+    def get_points_to_bestfit(self, magnet_meas: Magnet, magnet_nom: Magnet) -> dict:
+        """ Get measured and nominal points from magnet. Points are returned in
+            the form of a list of coordinates, which in turn are [x,y,z] lists """
 
         if magnet_meas.type != 'dipole-B2':
+            # all magnets types except the B2 requires all 
+            # the points with no dof separation
             points_measured = magnet_meas.get_ordered_points_coords()
             points_nominal = magnet_nom.get_ordered_points_coords()
         else:
+            # for the B2 we have points for evaluating the level and height (Rx, Rz and Ty)
+            # and points to evaluate the rest of the dofs (Tx, Tz and Ry). They will be used
+            # individually to perform diferent best-fits and then be composed to reach the
+            # position of the measured frame of B2
             points_measured = {'TyRxRz': [], 'TxTzRy': []}
             points_nominal = {'TyRxRz': [], 'TxTzRy': []}
 
-            pointDict = magnet_meas.pointDict
+            pointDict = magnet_meas.points
 
             for pointName in pointDict:
                 pointMeas = pointDict[pointName]
-                pointNom = magnet_nom.pointDict[pointName]
+                pointNom = magnet_nom.points[pointName]
 
-                # diferenciando conjunto de pontos para comporem diferentes graus de liberdade
+                # populating lists of points according to the 'LVL' indicator in the name
                 if ('LVL' in pointName):
                     # DoFs: ['Ty', 'Rx', 'Rz']
                     points_measured['TyRxRz'].append(pointMeas.coord_list)
@@ -113,138 +135,157 @@ class SR(Accelerator):
 
         return {'measured': points_measured, 'nominal': points_nominal}
 
-    def calculate_nominal_to_measured_transformation(self, magnet, pointList) -> Transformation:
+    def calculate_ML_to_local_measured_transformation(self, magnet: Magnet, points: Dict[str, list]) -> Transformation:
+        """ Calculates the transformation between the machine-local frame to 
+            the measured frame of the magnet (or local measured frame). """
+        
         if (magnet.type == 'dipole-B1'):
-            pointDict = magnet.pointDict
-            girderName = f'{magnet.name.split("-")[0]}-{magnet.name.split("-")[1]}'
+            # B1 dipoles needs a special treatment: their measured frame will be a product of 
+            # the manipulation of measured frame of the adjacent quad01 magnet and geometrical
+            # operations using nominal and measured data, such as the offset of the center of the
+            # 2 measured points to the magnetic center of the dipole.
+
+            # points from the magnet will be used because of the operations of frame changuing
+            points = magnet.points
 
             # changuing points' frame: from the current activated frame ("dipole-nominal") to the "quadrupole-measured"
-            frameFrom = self.frames['nominal'][f'{magnet.name}']
-            frameTo = self.frames['measured'][f'{girderName}-QUAD01']
+            girder_name = magnet.parent_ref
+            frame_from = self.frames['nominal'][f'{magnet.name}']
+            frame_to = self.frames['measured'][f'{girder_name}-QUAD01']
+            Frame.changeFrame(frame_from, frame_to, points)
 
-            Frame.changeFrame(frameFrom, frameTo, pointDict)
-
-            # listing the points' coordinates in the new frame
-            points = []
-            for pointName in pointDict:
-                point = pointDict[pointName]
-                points.append([point.x, point.y, point.z])
+            # listing the points' coordinates in the new frame for latter usage
+            points_transformed = []
+            for point in points.values():
+                points_transformed.append([point.x, point.y, point.z])
 
             # changuing back point's frame
-            Frame.changeFrame(frameTo, frameFrom, pointDict)
+            Frame.changeFrame(frame_to, frame_from, points)
 
-            # calculating mid point position
-            midPoint = np.mean(points, axis=0)
+            # calculating mid point position of the 2 measured B1 points
+            mid_point = np.mean(points_transformed, axis=0)
 
-            # defining shift parameters
+            # defining nominal shift
             # dist = 62.522039008
-            dist = 62.4384
+            dist_from_mid_point_to_magnet_center = 62.4384
 
             # applying magnet's specific shift to compensate manufacturing variation
-            dist -= magnet.shift
+            dist_from_mid_point_to_magnet_center -= magnet.shift
 
+            # defining nominal rotation, which is the angle of curvature of the B1
             dRy = 24.044474 * 10**-3  # rad
-            # differentiating the rotation's signal according to the type of assembly (girder B03 or B11)
-            if (girderName[-3:] == 'B03'):
+            if ('B03' in girder_name):
+                # differentiating the rotation's signal between B03 and B11 cases
                 dRy = - dRy
 
-            # calculating shift in both planar directions
-            shiftTransv = dist * math.cos(dRy)
-            shiftLong = dist * math.sin(dRy)
-            shiftVert = -228.5
+            # calculating offset in both planar directions
+            shift_transv = dist_from_mid_point_to_magnet_center * math.cos(dRy)
+            shift_long = dist_from_mid_point_to_magnet_center * math.sin(dRy)
+            shift_vert = -228.5 # nominal value
 
             # calculating shifted point position, which defines the origin of the frame "dipole-measured"
-            shiftedPointPosition = [midPoint[0] - shiftTransv, midPoint[1] + shiftVert, midPoint[2] + shiftLong]
-
-            # defining a transformation between "dipole-measured" and "quadrupole-measured"
-            frameFrom = girderName + '-QUAD01'
-            frameTo = magnet.name
-            localTransformation = Transformation(frameFrom, frameTo, 0, 0, shiftedPointPosition[2], 0, dRy * 10**3, 0)  # mrad
-            baseTransformation = self.frames['measured'][frameFrom].transformation
+            shifted_point_position = [mid_point[0] - shift_transv, mid_point[1] + shift_vert, mid_point[2] + shift_long]
+            # defining a transformation between "dipole-measured" and "quadrupole-measured", which will
+            # assume that Tx, Ty, Rx and Rz between the quad and dipole are 0 (ok because they are in the same girder)
+            # and use the calculated Tz and Ry between the two
+            frame_from = girder_name + '-QUAD01'
+            frame_to = magnet.name
+            local_transf = Transformation(frame_from, frame_to, 0, 0, shifted_point_position[2], 0, dRy * 10**3, 0)  # mrad
+            # base transformation is from machine-local to quad01 measured frame
+            base_transf = self.frames['measured'][frame_from].transformation
         else:
             if (magnet.type == 'dipole-B2'):
-                # calculating transformation for the 1st group of points associated
-                # with specific degrees of freedom
+                # B2 dipoles uses a separation of degrees of freedom to calculate its deviation
+
+                # calculating transformation for the 1st group of points associated with level and height
                 dofs = ['Ty', 'Rx', 'Rz']
-                # print(pointsMeasured, pointsNominal)
-                deviationPartial1 = evaluateDeviation(pointList['measured']['TyRxRz'], pointList['nominal']['TyRxRz'], dofs)
+                dev_tyrxrz = evaluateDeviation(points['measured']['TyRxRz'], points['nominal']['TyRxRz'], dofs)
             
-                # Forcing the "corresponding group"
+                # once calculated the 1st transf., transform the 2nd group of points to correct its level and height
+                # before using then in the calculation of deviation with the rest of degrees of freedom
                 transfPoints = []
-                for point in pointList['nominal']['TxTzRy']:
+                for point in points['nominal']['TxTzRy']:
                     transfPt = Point('n/c', point[0], point[1], point[2])
-                    # transfPt = Point.copyFromPoint(point)
-                    transform = Transformation('n/c', 'n/c', 0, deviationPartial1[0], 0, deviationPartial1[1], 0, deviationPartial1[2])
+                    transform = Transformation('n/c', 'n/c', 0, dev_tyrxrz[0], 0, dev_tyrxrz[1], 0, dev_tyrxrz[2])
                     transfPt.transform(transform.transfMatrix, 'n/c')
                     transfPoints.append([transfPt.x, transfPt.y, transfPt.z])
 
-                # 2nd group of points
+                # calculating the 2nd and last deviation, considering the others dofs and the transformed points
                 dofs = ['Tx', 'Tz', 'Ry']
-                deviationPartial2 = evaluateDeviation(pointList['measured']['TxTzRy'], transfPoints, dofs)
+                dev_txtzry = evaluateDeviation(points['measured']['TxTzRy'], transfPoints, dofs)
 
                 # agregating parcial dofs
-                deviation = np.array(
-                    [deviationPartial2[0], deviationPartial1[0], deviationPartial2[1], deviationPartial1[1], deviationPartial2[2], deviationPartial1[2]])
+                deviation = np.array([dev_txtzry[0], dev_tyrxrz[0], dev_txtzry[1], dev_tyrxrz[1], dev_txtzry[2], dev_tyrxrz[2]])
             else:
-                # no dof separation
+                # no dof separation, normal evaluation
                 dofs = ['Tx', 'Ty', 'Tz', 'Rx', 'Ry', 'Rz']
-                deviation = evaluateDeviation(pointList['measured'], pointList['nominal'], dofs)
+                deviation = evaluateDeviation(points['measured'], points['nominal'], dofs)
 
-            localTransformation = Transformation(magnet.name, magnet.name, *deviation)
-            baseTransformation = self.frames['nominal'][magnet.name].transformation
+            # defining machine-local to local nominal frame transformation (base)
+            # and local nominal to local measured transformation (local)
+            local_transf = Transformation(magnet.name, magnet.name, *deviation)
+            base_transf = self.frames['nominal'][magnet.name].transformation
 
-        transformation = Transformation.compose_transformations(baseTransformation, localTransformation, 'machine-local', magnet.name)
+        # calculating ML to magnet-measured frame relation from the base and local transformations
+        transformation = Transformation.compose_transformations(base_transf, local_transf, 'machine-local', magnet.name)
         return transformation
 
-    def get_point_info(self, pointName):
-        credentials = {}
-        credentials["isCurrentAcceleratorPoint"] = True
-        credentials["isValidPoint"] = True
+    def get_point_info(self, point_name: str) -> dict:
+        """ Defines the expected template for the point's nomenclature and extracts meta data from it. """
+        
+        # init dict
+        point_info = {}
+        point_info["isCurrentAcceleratorPoint"] = True
+        point_info["isValidPoint"] = True
 
-        details = pointName.split('-')
-        sectorID = details[0]
-        girderID = details[1]
-        girder = sectorID + '-' + girderID
+        # extract meta data from point name
+        details = point_name.split('-')
+        sector_id = details[0]
+        girder_id = details[1]
+        girder_name = sector_id + '-' + girder_id
+        magnet_ref = details[2]
 
-        if (sectorID[0] != 'S' or girderID[0] != 'B'):
-            credentials["isCurrentAcceleratorPoint"] = False
-            return credentials
+        # checking if nomenclature is OK
+        if (sector_id[0] != 'S' or girder_id[0] != 'B'):
+            point_info["isCurrentAcceleratorPoint"] = False
+            return point_info
 
         if (len(details) < 4):
-            credentials["isValidPoint"] = False
-            return credentials
+            point_info["isValidPoint"] = False
+            return point_info
 
         # filtering points that aren't fiducials (especially on B1)
-        if ('C01' not in pointName and 'C02' not in pointName and 'C03' not in pointName and 'C04' not in pointName and 'LVL' not in pointName):
-            credentials["isValidPoint"] = False
-            return credentials
+        if ('C01' not in point_name and 'C02' not in point_name and 'C03' not in point_name and 'C04' not in point_name and 'LVL' not in point_name):
+            point_info["isValidPoint"] = False
+            return point_info
 
-        magnetRef = details[2]
-
+        # treating longitudinal points 
         if (details[len(details)-1] == 'LONG'):
-            magnetName = sectorID + '-' + girderID + '-' + magnetRef + '-' + details[len(details)-1]
+            magnet_name = sector_id + '-' + girder_id + '-' + magnet_ref + '-' + details[len(details)-1]
         else:
-            magnetName = sectorID + '-' + girderID + '-' + magnetRef
+            magnet_name = sector_id + '-' + girder_id + '-' + magnet_ref
 
-        if (magnetRef[:4] == 'QUAD'):
-            magnetType = 'quadrupole'
-        elif (magnetRef[:4] == 'SEXT'):
-            magnetType = 'sextupole'
-        elif (magnetRef == 'B1'):
-            magnetType = 'dipole-B1'
-        elif (magnetRef == 'B2'):
-            magnetType = 'dipole-B2'
-        elif (magnetRef == 'BC'):
-            magnetType = 'dipole-BC'
+        # defining magnet type
+        if (magnet_ref[:4] == 'QUAD'):
+            magnet_type = 'quadrupole'
+        elif (magnet_ref[:4] == 'SEXT'):
+            magnet_type = 'sextupole'
+        elif (magnet_ref == 'B1'):
+            magnet_type = 'dipole-B1'
+        elif (magnet_ref == 'B2'):
+            magnet_type = 'dipole-B2'
+        elif (magnet_ref == 'BC'):
+            magnet_type = 'dipole-BC'
         else:
-            magnetType = 'other'
+            magnet_type = 'other'
 
-        credentials["location"] = girder
-        credentials["magnetType"] = magnetType
-        credentials["pointName"] = pointName
-        credentials["magnetName"] = magnetName
+        # storing info to return
+        point_info["location"] = girder_name
+        point_info["magnetType"] = magnet_type
+        point_info["pointName"] = point_name
+        point_info["magnetName"] = magnet_name
 
-        return credentials
+        return point_info
 
     @staticmethod
     def calcB1PerpendicularTranslations(deviations, objectDictMeas, objectDictNom, frameDict):
